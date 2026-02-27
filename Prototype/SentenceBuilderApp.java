@@ -88,13 +88,16 @@ public class SentenceBuilderApp {
     }
 
     private void runAutocomplete(Scanner scanner, String algo) {
-        System.out.println("Start typing. End with a space to see suggestions. Type '.' to quit.");
+        System.out.println("Start typing. End with a space to see suggestions. Type '.', '!', or '?' to quit.");
         StringBuilder currentInput = new StringBuilder();
 
         while (true) {
             System.out.print("Input: " + currentInput);
-            String token = scanner.nextLine();
-            if (token.equals(".")) break;
+            String token = scanner.nextLine().toLowerCase();
+            if (token.matches(".*[.!?].*")) {
+                System.out.println("Autocomplete ended.");
+                break;
+            }
 
             currentInput.append(token).append(" ");
             
@@ -115,8 +118,16 @@ public class SentenceBuilderApp {
     }
 
     private void runGeneration(Scanner scanner, String algo) {
-        System.out.print("Enter a starting word: "); // Requirement 3A [cite: 19]
-        String currentWord = scanner.nextLine().trim().toLowerCase();
+        System.out.print("Enter a starting word: "); 
+        String rawInput = scanner.nextLine().trim().toLowerCase();
+        
+        // BUG FIX: Split by whitespace and isolate the first word
+        String[] inputWords = rawInput.split("\\s+");
+        if (inputWords.length == 0 || inputWords[0].isEmpty()) {
+            System.out.println("Invalid input.");
+            return;
+        }
+        String currentWord = inputWords[0]; 
         
         List<String> sentence = new ArrayList<>();
         sentence.add(currentWord);
@@ -140,6 +151,12 @@ public class SentenceBuilderApp {
             
             sentence.add(nextWord);
             currentWord = nextWord;
+        }
+
+        // Capitalize the first letter of the generated sentence
+        if (!sentence.isEmpty()) {
+            String firstWord = sentence.get(0);
+            sentence.set(0, firstWord.substring(0, 1).toUpperCase() + firstWord.substring(1));
         }
 
         System.out.println("Generated: " + String.join(" ", sentence) + ".");

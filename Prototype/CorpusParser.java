@@ -102,10 +102,25 @@ public class CorpusParser {
                         wordCount++;
                         batchCounter++;
 
+                        // 1. Store the word as-is (treat hyphenated word as one word)
                         psWord.setString(1, token);
                         psWord.setInt(2, isStartOfSentence ? 1 : 0);
                         psWord.addBatch();
 
+                        // 2. NEW LOGIC: Split hyphenated words and store the distinct parts
+                        if (token.contains("-")) {
+                            String[] splitWords = token.split("-");
+                            for (String splitWord : splitWords) {
+                                if (!splitWord.isEmpty()) {
+                                    psWord.setString(1, splitWord);
+                                    psWord.setInt(2, 0); // The split parts don't count as sentence starters
+                                    psWord.addBatch();
+                                    batchCounter++;
+                                }
+                            }
+                        }
+
+                        // 3. Continue with relational logic using the original complete token
                         if (w1 != null) {
                             psBigram.setString(1, w1);
                             psBigram.setString(2, token);

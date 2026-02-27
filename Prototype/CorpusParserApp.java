@@ -94,6 +94,7 @@ public class CorpusParserApp extends Application {
                     if (CorpusParser.cancelRequested) {
                         Platform.exit();
                     } else {
+                        isParsing = false;
                         showAlert(Alert.AlertType.INFORMATION, "Success", "Parse complete!");
                         parseButton.setDisable(false);
                         parseButton.setText("Parse Text");
