@@ -5,7 +5,7 @@ import java.util.*;
 import java.util.regex.*;
 
 public class CorpusParser {
-    private static final String DB_URL = "jdbc:mysql://localhost:3306/SentenceBuilder"; 
+    private static final String DB_URL = "jdbc:mysql://localhost:3306/BuilderWords"; 
     private static final String USER = "sentencebuilder";
     private static final String PASS = "Yo457S<DWL.D";
 

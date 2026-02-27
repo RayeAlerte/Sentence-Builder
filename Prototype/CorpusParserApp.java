@@ -13,6 +13,7 @@ public class CorpusParserApp extends Application {
     private ListView<String> fileListView;
     private Button parseButton;
     private Button safeExitButton;
+    private volatile boolean isParsing = false;
 
     @Override
     public void start(Stage primaryStage) {
@@ -37,11 +38,17 @@ public class CorpusParserApp extends Application {
         parseButton.setOnAction(e -> startParsing());
         
         safeExitButton.setOnAction(e -> {
-            CorpusParser.cancelRequested = true;
-            safeExitButton.setText("Exiting gracefully...");
-            safeExitButton.setDisable(true);
-            parseButton.setDisable(true);
-            // System will exit when background thread naturally finishes its current transaction
+            if (!isParsing) {
+                // Exit immediately if no background task is running
+                Platform.exit();
+                System.exit(0);
+            } else {
+                // Trigger the graceful shutdown of the background task
+                CorpusParser.cancelRequested = true;
+                safeExitButton.setText("Exiting gracefully...");
+                safeExitButton.setDisable(true);
+                parseButton.setDisable(true);
+            }
         });
 
         primaryStage.setScene(new Scene(root, 400, 350));
@@ -53,6 +60,15 @@ public class CorpusParserApp extends Application {
         if (Files.exists(rootData)) {
             try {
                 Files.list(rootData)
+                     .filter(Files::isRegularFile)
+                     .filter(p -> {
+                         try {
+                             return !Files.isHidden(p) && !p.getFileName().toString().equals(".DS_Store");
+                         } catch (Exception e) {
+                             return false;
+                         }
+                     })
+                     .filter(p -> p.toString().endsWith(".txt")) // Only show what will actually be parsed
                      .map(Path::getFileName)
                      .map(Path::toString)
                      .forEach(fileListView.getItems()::add);
@@ -65,6 +81,7 @@ public class CorpusParserApp extends Application {
     }
 
     private void startParsing() {
+        isParsing = true; // Mark that the background task is running
         parseButton.setDisable(true);
         parseButton.setText("Parsing...");
 
