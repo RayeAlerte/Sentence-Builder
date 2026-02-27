@@ -10,6 +10,7 @@ public class CorpusParser {
     private static final String PASS = "Yo457S<DWL.D";
 
     public static boolean includeGutenberg = false;
+    public static boolean includeCOCA = false;
     public static boolean processGutenbergMarkers = true;
     public static volatile boolean cancelRequested = false; // Safe exit flag
 
@@ -42,6 +43,19 @@ public class CorpusParser {
                          .filter(p -> !alreadyImported.contains(p.toFile().getName())) // Unique Check
                          .forEach(path -> {
                              if (!cancelRequested) processFile(path.toFile(), conn, true);
+                         });
+                }
+            }
+
+            if (includeCOCA && !cancelRequested) {
+                Path cocaData = Paths.get("./DataSources/CocaText");
+                if (Files.exists(cocaData)) {
+                    Files.list(cocaData)
+                         .filter(Files::isRegularFile)
+                         .filter(p -> p.toString().endsWith(".txt"))
+                         .filter(p -> !alreadyImported.contains(p.toFile().getName())) // Unique Check
+                         .forEach(path -> {
+                             if (!cancelRequested) processFile(path.toFile(), conn, false);
                          });
                 }
             }

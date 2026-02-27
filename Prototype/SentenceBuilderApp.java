@@ -5,6 +5,7 @@ public class SentenceBuilderApp {
     // Memory structures
     private Map<String, List<String>> bigramMap = new HashMap<>(); // w1 -> list of w2s sorted by freq
     private Map<String, List<String>> trigramMap = new HashMap<>(); // "w1 w2" -> list of w3s sorted by freq
+    private List<String> sentenceStarters = new ArrayList<>();  // NEW
 
     public void loadDatabaseIntoMemory(Connection conn) throws SQLException {
         /*
@@ -36,8 +37,33 @@ public class SentenceBuilderApp {
                 return size() > MAX_CACHE_SIZE;
             }
         };
+        
+        // Pre-load sentence starters (for empty or first-word autocomplete)
+        System.out.println("Pre-loading sentence starters...");
+        String starterQuery = "SELECT word FROM WordCorpus WHERE start_count > 0 ORDER BY start_count DESC LIMIT 500";
+        try (PreparedStatement ps = conn.prepareStatement(starterQuery);
+            ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                sentenceStarters.add(rs.getString("word"));
+            }
+        }
 
+        
         // Pre-load only the most frequent Bigrams to prevent memory overflow
+        /*System.out.println("Pre-loading bigrams (top 50 per prefix)...");
+        String bigramQuery =
+            "WITH ranked AS (" +
+            "  SELECT word1, word2, ROW_NUMBER() OVER (PARTITION BY word1 ORDER BY frequency DESC) AS rn " +
+            "  FROM Bigrams" +
+            ") SELECT word1, word2 FROM ranked WHERE rn <= 50 ORDER BY word1, rn";
+        try (PreparedStatement ps = conn.prepareStatement(bigramQuery);
+            ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                String w1 = rs.getString("word1");
+                String w2 = rs.getString("word2");
+                bigramMap.computeIfAbsent(w1, k -> new ArrayList<>()).add(w2);
+            }
+        }*/
         System.out.println("Pre-loading top bigrams...");
         String bigramQuery = "SELECT word1, word2 FROM Bigrams ORDER BY frequency DESC LIMIT ?";
         try (PreparedStatement ps = conn.prepareStatement(bigramQuery)) {
@@ -51,6 +77,22 @@ public class SentenceBuilderApp {
             }
         }
 
+        /*// Pre-load top 30 next-word suggestions per (word1, word2)
+        System.out.println("Pre-loading trigrams (top 30 per prefix)...");
+        String trigramQuery =
+            "WITH ranked AS (" +
+            "  SELECT word1, word2, word3, ROW_NUMBER() OVER (PARTITION BY word1, word2 ORDER BY frequency DESC) AS rn " +
+            "  FROM Trigrams" +
+            ") SELECT word1, word2, word3 FROM ranked WHERE rn <= 30 ORDER BY word1, word2, rn";
+        try (PreparedStatement ps = conn.prepareStatement(trigramQuery);
+            ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                String key = rs.getString("word1") + " " + rs.getString("word2");
+                String w3 = rs.getString("word3");
+                trigramMap.computeIfAbsent(key, k -> new ArrayList<>()).add(w3);
+            }
+        }*/
+            
         // Pre-load only the most frequent Trigrams
         System.out.println("Pre-loading top trigrams...");
         String trigramQuery = "SELECT word1, word2, word3 FROM Trigrams ORDER BY frequency DESC LIMIT ?";
@@ -111,6 +153,11 @@ public class SentenceBuilderApp {
             } else {
                 String key = words[words.length - 1];
                 suggestions = bigramMap.getOrDefault(key, new ArrayList<>());
+            }
+
+            // When user has typed nothing or just started, offer sentence starters
+            if (suggestions.isEmpty() && words.length <= 1) {
+                suggestions = new ArrayList<>(sentenceStarters);
             }
 
             System.out.println("--> Suggestions: " + (suggestions.isEmpty() ? "None" : suggestions.subList(0, Math.min(5, suggestions.size()))));
