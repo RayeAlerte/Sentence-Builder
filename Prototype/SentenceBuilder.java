@@ -1,7 +1,7 @@
 import java.util.*;
 import java.sql.*;
 
-public class SentenceBuilderApp {
+public class SentenceBuilder {
     // Memory structures
     private Map<String, List<String>> bigramMap = new HashMap<>(); // w1 -> list of w2s sorted by freq
     private Map<String, List<String>> trigramMap = new HashMap<>(); // "w1 w2" -> list of w3s sorted by freq
@@ -216,7 +216,7 @@ public class SentenceBuilderApp {
         final String PASS = "Yo457S<DWL.D";
 
         try (Connection conn = DriverManager.getConnection(DB_URL, USER, PASS)) {
-            SentenceBuilderApp app = new SentenceBuilderApp();
+            SentenceBuilder app = new SentenceBuilder();
             app.loadDatabaseIntoMemory(conn);
             app.startCLI();
         } catch (SQLException e) {
