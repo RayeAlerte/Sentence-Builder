@@ -1,8 +1,10 @@
-/DataSources
+
 /mysql-connector-j-9.6.0
 .DS_Store
 /javafx-sdk-25.0.2
 /Prototype/.vscode
 *.class
-/Prototype/DataSources
+
+/Prototype/DataSources/CocaText
+/Prototype/DataSources/Gutenberg
 /Prototype/CleanedTexts

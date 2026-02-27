@@ -1,9 +1,12 @@
 use BuilderWords;
+
+-- View Content
 select * from WordCorpus;
 select * from Bigrams;
 select * from Trigrams;
 select * from ImportedFiles;
 
+-- Clear the Database
 TRUNCATE TABLE Bigrams;
 TRUNCATE TABLE Trigrams;
 TRUNCATE TABLE ImportedFiles;
