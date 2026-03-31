@@ -39,12 +39,13 @@ public class CorpusParserApp extends Application {
 
         // Layout
         HBox buttonBox = new HBox(10, parseButton, safeExitButton);
-        VBox root = new VBox(10, new Label("DataSources Directory Contents:"), fileListView, gutenbergCheck, cocaCheck, buttonBox);
+        VBox root = new VBox(10, new Label("DataSources Directory Contents:"), fileListView, gutenbergCheck, cocaCheck,
+                buttonBox);
         root.setPadding(new Insets(15));
 
         // Event Handlers
         parseButton.setOnAction(e -> startParsing());
-        
+
         safeExitButton.setOnAction(e -> {
             if (!isParsing) {
                 // Exit immediately if no background task is running
@@ -100,17 +101,17 @@ public class CorpusParserApp extends Application {
 
     private void addTxtFilesFromPath(Path dir, String prefix) throws Exception {
         Files.list(dir)
-             .filter(Files::isRegularFile)
-             .filter(p -> {
-                 try {
-                     return !Files.isHidden(p) && !p.getFileName().toString().equals(".DS_Store");
-                 } catch (Exception e) {
-                     return false;
-                 }
-             })
-             .filter(p -> p.toString().endsWith(".txt"))
-             .map(p -> prefix + p.getFileName().toString())
-             .forEach(fileListView.getItems()::add);
+                .filter(Files::isRegularFile)
+                .filter(p -> {
+                    try {
+                        return !Files.isHidden(p) && !p.getFileName().toString().equals(".DS_Store");
+                    } catch (Exception e) {
+                        return false;
+                    }
+                })
+                .filter(p -> p.toString().endsWith(".txt"))
+                .map(p -> prefix + p.getFileName().toString())
+                .forEach(fileListView.getItems()::add);
     }
 
     private void startParsing() {
@@ -122,7 +123,7 @@ public class CorpusParserApp extends Application {
         Thread parserThread = new Thread(() -> {
             try {
                 CorpusParser.parseDataSources();
-                
+
                 Platform.runLater(() -> {
                     if (CorpusParser.cancelRequested) {
                         Platform.exit();
@@ -141,7 +142,7 @@ public class CorpusParserApp extends Application {
                 });
             }
         });
-        
+
         parserThread.setDaemon(true);
         parserThread.start();
     }
