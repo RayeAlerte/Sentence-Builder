@@ -37,6 +37,20 @@ public class SentenceBuilder {
         }
     }
 
+    enum SortType {
+        ALPHA,
+        FREQ;
+        /* TODO: Add more sorting methods */
+
+        public static SortType fromInput(int input) {
+            return switch (input) {
+                case 0 -> ALPHA;
+                case 1 -> FREQ;
+                default -> throw new IllegalArgumentException("Invalid algo: " + input);
+            };
+        }
+    }
+
     public void loadDatabaseIntoMemory(Connection conn) throws SQLException {
         /*
          * IDEAL STORAGE METHOD FOR LARGE DATASETS:
@@ -166,7 +180,8 @@ public class SentenceBuilder {
 
             switch (mode) {
                 case REPORTING -> {
-                    /* runReporting(); */ continue;
+                    runReporting(scanner);
+                    continue;
                 }
                 case EXIT -> {
                     break out;
@@ -229,6 +244,32 @@ public class SentenceBuilder {
         }
     }
 
+    private void runReporting(Scanner scanner) {
+        SortType sort = null;
+        do {
+            System.out.print("Select Sorting Mode [0] Alphabetical [1] Frequency: ");
+            try {
+                int input = Integer.parseInt(scanner.nextLine());
+                sort = SortType.fromInput(input);
+            } catch (Exception e) {
+                System.out.println("Please select a valid option");
+            }
+        } while (sort == null);
+
+        List<Map.Entry<String, List<String>>> entries = new ArrayList<>(bigramMap.entrySet());
+
+        switch (sort) {
+            case ALPHA -> entries.sort(Map.Entry.comparingByKey());
+            case FREQ -> entries.sort((a, b) -> b.getValue().size() - a.getValue().size());
+        }
+
+        System.out.println("\n--- Word Report ---");
+        for (Map.Entry<String, List<String>> entry : entries) {
+            System.out
+                    .println(entry.getKey() + " (" + entry.getValue().size() + " continuations): " + entry.getValue());
+        }
+    }
+
     private void runGeneration(Scanner scanner, Algo algo) {
         System.out.print("Enter a starting word: ");
         String rawInput = scanner.nextLine().trim().toLowerCase();
@@ -254,7 +295,7 @@ public class SentenceBuilder {
                     nextWord = options.get(0); // Greedy pick for prototype
             }
 
-            // Fallback to Bigram if Trigram fails or algo is 1
+            // Fallback to Bigram if Trigram fails or algo is already Bigram
             if (nextWord == null) {
                 List<String> options = bigramMap.get(currentWord);
                 if (options != null && !options.isEmpty())
