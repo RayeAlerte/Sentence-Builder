@@ -7,6 +7,10 @@ public class SentenceBuilder {
     private Map<String, List<String>> trigramMap = new HashMap<>(); // "w1 w2" -> list of w3s sorted by freq
     private List<String> sentenceStarters = new ArrayList<>();  // NEW
 
+    // Randomizers
+    private Random random = new Random();
+    private int randomnessPool = 1; // 1 = Greedy (Top result), >1 = Random from Top N
+
     public void loadDatabaseIntoMemory(Connection conn) throws SQLException {
         /*
          * IDEAL STORAGE METHOD FOR LARGE DATASETS:
@@ -113,18 +117,29 @@ public class SentenceBuilder {
     public void startCLI() {
         Scanner scanner = new Scanner(System.in);
         while (true) {
-            System.out.println("\nSelect Mode: [1] Autocomplete  [2] Generate Sentence  [3] Exit");
+            System.out.println("\nSelect Mode: [1] Autocomplete  [2] Generate Sentence  [3] Options  [4] Exit");
             String mode = scanner.nextLine();
             
-            if (mode.equals("3")) break;
-
-            System.out.println("Select Algorithm: [1] Frequency (Bigram)  [2] N-Gram Context (Trigram)");
-            String algo = scanner.nextLine();
+            if (mode.equals("4")) break;
 
             if (mode.equals("1")) {
-                runAutocomplete(scanner, algo);
+                runAutocomplete(scanner, "null");
             } else if (mode.equals("2")) {
-                runGeneration(scanner, algo);
+                runGeneration(scanner,"null");
+            } else if (mode.equals("3")) {
+                System.out.println("Current Randomness Pool Size: " + randomnessPool);
+                System.out.print("Enter new pool size (1 = most predictable, 5+ = more chaotic): ");
+                try {
+                    int newPool = Integer.parseInt(scanner.nextLine());
+                    if (newPool > 0) {
+                        randomnessPool = newPool;
+                        System.out.println("Randomness set to " + randomnessPool);
+                    } else {
+                        System.out.println("Must be at least 1.");
+                    }
+                } catch (NumberFormatException e) {
+                    System.out.println("Invalid number.");
+                }
             }
         }
     }
@@ -147,15 +162,20 @@ public class SentenceBuilder {
             String[] words = currentInput.toString().trim().split(" ");
             
             List<String> suggestions = new ArrayList<>();
-            if (algo.equals("2") && words.length >= 2) {
+            
+            // 1. Try Trigram context first
+            if (words.length >= 2) {
                 String key = words[words.length - 2] + " " + words[words.length - 1];
                 suggestions = trigramMap.getOrDefault(key, new ArrayList<>());
-            } else {
+            }
+            
+            // 2. Fallback to Bigram if Trigram fails
+            if (suggestions.isEmpty() && words.length >= 1) {
                 String key = words[words.length - 1];
                 suggestions = bigramMap.getOrDefault(key, new ArrayList<>());
             }
 
-            // When user has typed nothing or just started, offer sentence starters
+            // 3. Fallback to sentence starters if completely empty
             if (suggestions.isEmpty() && words.length <= 1) {
                 suggestions = new ArrayList<>(sentenceStarters);
             }
@@ -168,7 +188,6 @@ public class SentenceBuilder {
         System.out.print("Enter a starting word: "); 
         String rawInput = scanner.nextLine().trim().toLowerCase();
         
-        // BUG FIX: Split by whitespace and isolate the first word
         String[] inputWords = rawInput.split("\\s+");
         if (inputWords.length == 0 || inputWords[0].isEmpty()) {
             System.out.println("Invalid input.");
@@ -182,16 +201,17 @@ public class SentenceBuilder {
         for (int i = 0; i < 15; i++) { // Generate up to 15 words
             String nextWord = null;
             
-            if (algo.equals("2") && sentence.size() >= 2) {
+            // 1. Try Trigram context
+            if (sentence.size() >= 2) {
                 String key = sentence.get(sentence.size() - 2) + " " + sentence.get(sentence.size() - 1);
                 List<String> options = trigramMap.get(key);
-                if (options != null && !options.isEmpty()) nextWord = options.get(0); // Greedy pick for prototype
+                nextWord = pickNextWord(options);
             } 
             
-            // Fallback to Bigram if Trigram fails or algo is 1
+            // 2. Fallback to Bigram
             if (nextWord == null) { 
                 List<String> options = bigramMap.get(currentWord);
-                if (options != null && !options.isEmpty()) nextWord = options.get(0);
+                nextWord = pickNextWord(options);
             }
 
             if (nextWord == null) break; // Dead end
@@ -200,13 +220,19 @@ public class SentenceBuilder {
             currentWord = nextWord;
         }
 
-        // Capitalize the first letter of the generated sentence
         if (!sentence.isEmpty()) {
             String firstWord = sentence.get(0);
             sentence.set(0, firstWord.substring(0, 1).toUpperCase() + firstWord.substring(1));
         }
 
         System.out.println("Generated: " + String.join(" ", sentence) + ".");
+    }
+
+    // Helper method for selecting the next word based on randomness settings
+    private String pickNextWord(List<String> options) {
+        if (options == null || options.isEmpty()) return null;
+        int bound = Math.min(options.size(), randomnessPool);
+        return options.get(random.nextInt(bound));
     }
 
     public static void main(String[] args) {
