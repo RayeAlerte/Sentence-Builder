@@ -2,16 +2,15 @@ import java.util.*;
 import java.sql.*;
 
 public class SentenceBuilder {
+    private DBMan dbMan;
+
     // Memory structures
-    private Map<String, List<String>> bigramMap = new HashMap<>(); // w1 -> list of w2s sorted by freq
-    private Map<String, List<String>> trigramMap = new HashMap<>(); // "w1 w2" -> list of w3s sorted by freq
-    private List<String> sentenceStarters = new ArrayList<>(); // NEW
+    private Map<String, List<String>> bigramMap = new HashMap<>();
+    private Map<String, List<String>> trigramMap = new HashMap<>();
+    private List<String> sentenceStarters = new ArrayList<>();
 
     enum CLIMode {
-        REPORTING,
-        AUTOCOMPLETE,
-        GENERATE,
-        EXIT;
+        REPORTING, AUTOCOMPLETE, GENERATE, EXIT;
 
         public static CLIMode fromInput(int input) {
             return switch (input) {
@@ -25,8 +24,7 @@ public class SentenceBuilder {
     }
 
     enum Algo {
-        BIGRAM,
-        TRIGRAM;
+        BIGRAM, TRIGRAM;
 
         public static Algo fromInput(int input) {
             return switch (input) {
@@ -38,38 +36,41 @@ public class SentenceBuilder {
     }
 
     enum SortType {
-        ALPHA,
-        FREQ;
-        /* TODO: Add more sorting methods */
+        ALPHA, FREQ;
 
         public static SortType fromInput(int input) {
             return switch (input) {
                 case 0 -> ALPHA;
                 case 1 -> FREQ;
-                default -> throw new IllegalArgumentException("Invalid algo: " + input);
+                default -> throw new IllegalArgumentException("Invalid sort: " + input);
             };
         }
     }
 
-    public void loadDatabaseIntoMemory(Connection conn) throws SQLException {
+    private static final int MAX_CACHE_SIZE = 50000;
+
+    public SentenceBuilder(DBMan dbMan) {
+        this.dbMan = dbMan;
+    }
+
+    public void loadDatabaseIntoMemory() throws SQLException {
         /*
          * IDEAL STORAGE METHOD FOR LARGE DATASETS:
          * If the database grows too large (e.g., millions of n-grams from parsing large
-         * books),
-         * loading it entirely into a standard HashMap will cause an OutOfMemoryError.
-         * * The ideal solution is to use an LRU (Least Recently Used) Cache. This
-         * limits the map
+         * books), loading it entirely into a standard HashMap will cause an
+         * OutOfMemoryError.
+         * The ideal solution is to use an LRU (Least Recently Used) Cache. This limits
+         * the map
          * to a specific size, automatically evicting the oldest, least-used entries
          * when full.
          * For the generative algorithms, you pre-load only the top X most frequent word
-         * combinations
-         * into memory. If the user types a rare word combination that isn't in the
-         * cache, the
-         * application would then execute a targeted SQL query on-demand to fetch it.
+         * combinations into memory. If the user types a rare word combination that
+         * isn't in the
+         * cache, the application would then execute a targeted SQL query on-demand to
+         * fetch it.
          */
 
         System.out.println("Initializing memory structures...");
-        final int MAX_CACHE_SIZE = 50000; // Limit memory footprint
 
         // Initialize Bigram LRU Cache
         this.bigramMap = new LinkedHashMap<String, List<String>>(MAX_CACHE_SIZE + 1, 1.0f, true) {
@@ -87,79 +88,23 @@ public class SentenceBuilder {
             }
         };
 
-        // Pre-load sentence starters (for empty or first-word autocomplete)
+        // Pre-load sentence starters
         System.out.println("Pre-loading sentence starters...");
-        String starterQuery = "SELECT word FROM WordCorpus WHERE start_count > 0 ORDER BY start_count DESC LIMIT 500";
-        try (PreparedStatement ps = conn.prepareStatement(starterQuery);
-                ResultSet rs = ps.executeQuery()) {
-            while (rs.next()) {
-                sentenceStarters.add(rs.getString("word"));
-            }
-        }
+        sentenceStarters = dbMan.getSentenceStarters(500);
 
-        // Pre-load only the most frequent Bigrams to prevent memory overflow
-        /*
-         * System.out.println("Pre-loading bigrams (top 50 per prefix)...");
-         * String bigramQuery =
-         * "WITH ranked AS (" +
-         * "  SELECT word1, word2, ROW_NUMBER() OVER (PARTITION BY word1 ORDER BY frequency DESC) AS rn "
-         * +
-         * "  FROM Bigrams" +
-         * ") SELECT word1, word2 FROM ranked WHERE rn <= 50 ORDER BY word1, rn";
-         * try (PreparedStatement ps = conn.prepareStatement(bigramQuery);
-         * ResultSet rs = ps.executeQuery()) {
-         * while (rs.next()) {
-         * String w1 = rs.getString("word1");
-         * String w2 = rs.getString("word2");
-         * bigramMap.computeIfAbsent(w1, k -> new ArrayList<>()).add(w2);
-         * }
-         * }
-         */
+        // Pre-load top bigrams and build map
         System.out.println("Pre-loading top bigrams...");
-        String bigramQuery = "SELECT word1, word2 FROM Bigrams ORDER BY frequency DESC LIMIT ?";
-        try (PreparedStatement ps = conn.prepareStatement(bigramQuery)) {
-            ps.setInt(1, MAX_CACHE_SIZE);
-            try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) {
-                    String w1 = rs.getString("word1");
-                    String w2 = rs.getString("word2");
-                    bigramMap.computeIfAbsent(w1, k -> new ArrayList<>()).add(w2);
-                }
-            }
+        List<Bigram> bigrams = dbMan.loadBigrams(MAX_CACHE_SIZE);
+        for (Bigram b : bigrams) {
+            bigramMap.computeIfAbsent(b.word1, k -> new ArrayList<>()).add(b.word2);
         }
 
-        /*
-         * // Pre-load top 30 next-word suggestions per (word1, word2)
-         * System.out.println("Pre-loading trigrams (top 30 per prefix)...");
-         * String trigramQuery =
-         * "WITH ranked AS (" +
-         * "  SELECT word1, word2, word3, ROW_NUMBER() OVER (PARTITION BY word1, word2 ORDER BY frequency DESC) AS rn "
-         * +
-         * "  FROM Trigrams" +
-         * ") SELECT word1, word2, word3 FROM ranked WHERE rn <= 30 ORDER BY word1, word2, rn"
-         * ;
-         * try (PreparedStatement ps = conn.prepareStatement(trigramQuery);
-         * ResultSet rs = ps.executeQuery()) {
-         * while (rs.next()) {
-         * String key = rs.getString("word1") + " " + rs.getString("word2");
-         * String w3 = rs.getString("word3");
-         * trigramMap.computeIfAbsent(key, k -> new ArrayList<>()).add(w3);
-         * }
-         * }
-         */
-
-        // Pre-load only the most frequent Trigrams
+        // Pre-load top trigrams and build map
         System.out.println("Pre-loading top trigrams...");
-        String trigramQuery = "SELECT word1, word2, word3 FROM Trigrams ORDER BY frequency DESC LIMIT ?";
-        try (PreparedStatement ps = conn.prepareStatement(trigramQuery)) {
-            ps.setInt(1, MAX_CACHE_SIZE);
-            try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) {
-                    String key = rs.getString("word1") + " " + rs.getString("word2");
-                    String w3 = rs.getString("word3");
-                    trigramMap.computeIfAbsent(key, k -> new ArrayList<>()).add(w3);
-                }
-            }
+        List<Trigram> trigrams = dbMan.loadTrigrams(MAX_CACHE_SIZE);
+        for (Trigram t : trigrams) {
+            String key = t.word1 + " " + t.word2;
+            trigramMap.computeIfAbsent(key, k -> new ArrayList<>()).add(t.word3);
         }
 
         System.out.println("Memory initialization complete.");
@@ -222,7 +167,6 @@ public class SentenceBuilder {
 
             currentInput.append(token).append(" ");
 
-            // Trigger autocomplete only when space/word boundary is hit [cite: 25]
             String[] words = currentInput.toString().trim().split(" ");
 
             List<String> suggestions = new ArrayList<>();
@@ -234,7 +178,6 @@ public class SentenceBuilder {
                 suggestions = bigramMap.getOrDefault(key, new ArrayList<>());
             }
 
-            // When user has typed nothing or just started, offer sentence starters
             if (suggestions.isEmpty() && words.length <= 1) {
                 suggestions = new ArrayList<>(sentenceStarters);
             }
@@ -256,17 +199,21 @@ public class SentenceBuilder {
             }
         } while (sort == null);
 
-        List<Map.Entry<String, List<String>>> entries = new ArrayList<>(bigramMap.entrySet());
+        try {
+            List<Word> words = switch (sort) {
+                case ALPHA -> dbMan.getAllWordsSortedAlpha();
+                case FREQ -> dbMan.getAllWordsSortedByFrequency();
+            };
 
-        switch (sort) {
-            case ALPHA -> entries.sort(Map.Entry.comparingByKey());
-            case FREQ -> entries.sort((a, b) -> b.getValue().size() - a.getValue().size());
-        }
-
-        System.out.println("\n--- Word Report ---");
-        for (Map.Entry<String, List<String>> entry : entries) {
-            System.out
-                    .println(entry.getKey() + " (" + entry.getValue().size() + " continuations): " + entry.getValue());
+            System.out.println("\n--- Word Report ---");
+            for (Word w : words) {
+                System.out.println(w.word +
+                        " | total: " + w.totalCount +
+                        " | starts: " + w.startCount +
+                        " | ends: " + w.endCount);
+            }
+        } catch (SQLException e) {
+            System.out.println("Error fetching report: " + e.getMessage());
         }
     }
 
@@ -274,7 +221,6 @@ public class SentenceBuilder {
         System.out.print("Enter a starting word: ");
         String rawInput = scanner.nextLine().trim().toLowerCase();
 
-        // BUG FIX: Split by whitespace and isolate the first word
         String[] inputWords = rawInput.split("\\s+");
         if (inputWords.length == 0 || inputWords[0].isEmpty()) {
             System.out.println("Invalid input.");
@@ -285,17 +231,16 @@ public class SentenceBuilder {
         List<String> sentence = new ArrayList<>();
         sentence.add(currentWord);
 
-        for (int i = 0; i < 15; i++) { // Generate up to 15 words
+        for (int i = 0; i < 15; i++) {
             String nextWord = null;
 
             if (algo == Algo.TRIGRAM && sentence.size() >= 2) {
                 String key = sentence.get(sentence.size() - 2) + " " + sentence.get(sentence.size() - 1);
                 List<String> options = trigramMap.get(key);
                 if (options != null && !options.isEmpty())
-                    nextWord = options.get(0); // Greedy pick for prototype
+                    nextWord = options.get(0);
             }
 
-            // Fallback to Bigram if Trigram fails or algo is already Bigram
             if (nextWord == null) {
                 List<String> options = bigramMap.get(currentWord);
                 if (options != null && !options.isEmpty())
@@ -303,13 +248,12 @@ public class SentenceBuilder {
             }
 
             if (nextWord == null)
-                break; // Dead end
+                break;
 
             sentence.add(nextWord);
             currentWord = nextWord;
         }
 
-        // Capitalize the first letter of the generated sentence
         if (!sentence.isEmpty()) {
             String firstWord = sentence.get(0);
             sentence.set(0, firstWord.substring(0, 1).toUpperCase() + firstWord.substring(1));
@@ -318,19 +262,4 @@ public class SentenceBuilder {
         System.out.println("Generated: " + String.join(" ", sentence) + ".");
     }
 
-    public static void main(String[] args) {
-        // Database connection details should match those used when populating the
-        // corpus
-        final String DB_URL = "jdbc:mysql://localhost:3306/BuilderWords";
-        final String USER = "sentencebuilder";
-        final String PASS = "Yo457S<DWL.D";
-
-        try (Connection conn = DriverManager.getConnection(DB_URL, USER, PASS)) {
-            SentenceBuilder app = new SentenceBuilder();
-            app.loadDatabaseIntoMemory(conn);
-            app.startCLI();
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-    }
 }

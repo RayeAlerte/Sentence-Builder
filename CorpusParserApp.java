@@ -6,6 +6,7 @@ import javafx.scene.control.*;
 import javafx.scene.layout.*;
 import javafx.stage.Stage;
 import java.nio.file.*;
+import java.sql.SQLException;
 
 public class CorpusParserApp extends Application {
 
@@ -14,8 +15,22 @@ public class CorpusParserApp extends Application {
     private Button safeExitButton;
     private volatile boolean isParsing = false;
 
+    private DBMan dbMan;
+    private CorpusParser corpusParser;
+
     @Override
     public void start(Stage primaryStage) {
+        // Initialize DBMan and CorpusParser
+        dbMan = new DBMan();
+        try {
+            dbMan.connect();
+        } catch (SQLException e) {
+            showAlert(Alert.AlertType.ERROR, "Database Error", "Could not connect to database:\n" + e.getMessage());
+            Platform.exit();
+            return;
+        }
+        corpusParser = new CorpusParser(dbMan);
+
         primaryStage.setTitle("Sentence Builder - Data Parser");
 
         // UI Components
@@ -48,11 +63,10 @@ public class CorpusParserApp extends Application {
 
         safeExitButton.setOnAction(e -> {
             if (!isParsing) {
-                // Exit immediately if no background task is running
+                disconnect();
                 Platform.exit();
                 System.exit(0);
             } else {
-                // Trigger the graceful shutdown of the background task
                 CorpusParser.cancelRequested = true;
                 safeExitButton.setText("Exiting gracefully...");
                 safeExitButton.setDisable(true);
@@ -60,8 +74,20 @@ public class CorpusParserApp extends Application {
             }
         });
 
+        // Disconnect from DB when window is closed
+        primaryStage.setOnCloseRequest(e -> disconnect());
+
         primaryStage.setScene(new Scene(root, 400, 350));
         primaryStage.show();
+    }
+
+    private void disconnect() {
+        try {
+            if (dbMan != null)
+                dbMan.disconnect();
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
     }
 
     private void populateFileList() {
@@ -74,7 +100,6 @@ public class CorpusParserApp extends Application {
         }
 
         try {
-            // Always show root DataSources .txt files
             addTxtFilesFromPath(rootData, "");
 
             if (CorpusParser.includeGutenberg) {
@@ -115,17 +140,17 @@ public class CorpusParserApp extends Application {
     }
 
     private void startParsing() {
-        isParsing = true; // Mark that the background task is running
+        isParsing = true;
         parseButton.setDisable(true);
         parseButton.setText("Parsing...");
 
-        // Run parser in a background thread to prevent GUI freezing
         Thread parserThread = new Thread(() -> {
             try {
-                CorpusParser.parseDataSources();
+                corpusParser.parseDataSources();
 
                 Platform.runLater(() -> {
                     if (CorpusParser.cancelRequested) {
+                        disconnect();
                         Platform.exit();
                     } else {
                         isParsing = false;
@@ -138,6 +163,7 @@ public class CorpusParserApp extends Application {
             } catch (Exception ex) {
                 Platform.runLater(() -> {
                     showAlert(Alert.AlertType.ERROR, "Parsing Error", "An error occurred:\n" + ex.getMessage());
+                    disconnect();
                     Platform.exit();
                 });
             }

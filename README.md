@@ -1,23 +1,36 @@
-# Sentence-Builder
+# How to run this project!
 
-This is a fork for Victoria Alerte to develop an isolated instance for generation testing.
-This model implements GUI in JavaFX and a word depository storing monograms, bigrams and trigrams for generation in MySQL.
+## Dependencies
 
-Please do not copy unless absolutely necessary. Do not redistribute data sources!
+You will need mariadb/mysql and javafx.
 
----
+## .env File
 
-Requires:
-JavaFX - launch configured in launch.json (for VSCode, should be settings.json)
-MySQL Connector/J - launch configured in launch.json (for VSCode, should be settings.json)
+Create a .env file with FX and MYSQL environment variables.
+They will point to the 2 dependencies you need to run this. 
 
-Optional:
-clean-text - text cleaning application used to clean COCA.
+```
 
-Included .sh files show how to launch from command line on Mac OS.
+FX=~/javafx-sdk-21.0.5/lib
+MYSQL=mysql-connector-j-9.6.0.jar
 
-DataSources folder should be at the same level as the executable.
+```
 
-Create these subfolders for DataSources:
-Gutenberg - for Gutenberg formatted text files
-CocaText - for COCA text corpuses
+## Setting up local db for testing
+
+```
+
+CREATE DATABASE BuilderWords;
+CREATE USER 'sentencebuilder'@'localhost' IDENTIFIED BY 'Yo457S<DWL.D';
+GRANT ALL PRIVILEGES ON BuilderWords.* TO 'sentencebuilder'@'localhost';
+FLUSH PRIVILEGES;
+USE BuilderWords;
+SOURCE /your/own/path/Sentence-Builder/DDL.sql;
+EXIT;
+
+```
+
+## Running
+
+To run the gui, use `./run.sh -gui`, for the cli use `./run.sh`.
+
