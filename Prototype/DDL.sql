@@ -32,3 +32,11 @@ CREATE TABLE ImportedFiles (
     word_count INT,
     import_date DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Table to track generated sentences
+CREATE TABLE IF NOT EXISTS UserHistory (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    activity_type VARCHAR(50), 
+    content TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);

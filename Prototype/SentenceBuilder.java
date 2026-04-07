@@ -214,6 +214,11 @@ public class SentenceBuilder {
                 nextWord = pickNextWord(options);
             }
 
+            // 3. Fallback to sentence starters if completely empty
+            if (nextWord == null) {
+                nextWord = pickNextWord(sentenceStarters);
+            }
+
             if (nextWord == null) break; // Dead end
             
             sentence.add(nextWord);
