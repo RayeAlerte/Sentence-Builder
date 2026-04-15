@@ -9,28 +9,21 @@ public class SentenceBuilder {
     private Map<String, List<String>> trigramMap = new HashMap<>();
     private List<String> sentenceStarters = new ArrayList<>();
 
+    // Randomizers
+    private Random random = new Random();
+    private int randomnessPool = 1; // 1 = Greedy (Top result), >1 = Random from Top N
+
     enum CLIMode {
-        REPORTING, AUTOCOMPLETE, GENERATE, EXIT;
+        REPORTING, AUTOCOMPLETE, GENERATE, OPTIONS, EXIT;
 
         public static CLIMode fromInput(int input) {
             return switch (input) {
                 case 0 -> REPORTING;
                 case 1 -> AUTOCOMPLETE;
                 case 2 -> GENERATE;
-                case 3 -> EXIT;
+                case 3 -> OPTIONS;
+                case 4 -> EXIT;
                 default -> throw new IllegalArgumentException("Invalid mode: " + input);
-            };
-        }
-    }
-
-    enum Algo {
-        BIGRAM, TRIGRAM;
-
-        public static Algo fromInput(int input) {
-            return switch (input) {
-                case 0 -> BIGRAM;
-                case 1 -> TRIGRAM;
-                default -> throw new IllegalArgumentException("Invalid algo: " + input);
             };
         }
     }
@@ -113,7 +106,8 @@ public class SentenceBuilder {
     public void startCLI() {
         Scanner scanner = new Scanner(System.in);
         out: while (true) {
-            System.out.println("\nSelect Mode: [0] Reporting [1] Autocomplete [2] Generate Sentence [3] Exit");
+            System.out.println(
+                    "\nSelect Mode: [0] Reporting [1] Autocomplete [2] Generate Sentence [3] Options [4] Exit");
             CLIMode mode;
             try {
                 int input = Integer.parseInt(scanner.nextLine());
@@ -124,36 +118,40 @@ public class SentenceBuilder {
             }
 
             switch (mode) {
+                case AUTOCOMPLETE -> {
+                    runAutocomplete(scanner);
+                }
+                case GENERATE -> {
+                    runGeneration(scanner);
+                }
                 case REPORTING -> {
                     runReporting(scanner);
                     continue;
                 }
+                case OPTIONS -> {
+                    System.out.println("Current Randomness Pool Size: " + randomnessPool);
+                    System.out.print("Enter new pool size (1 = most predictable, 5+ = more chaotic): ");
+                    try {
+                        int newPool = Integer.parseInt(scanner.nextLine());
+                        if (newPool > 0) {
+                            randomnessPool = newPool;
+                            System.out.println("Randomness set to " + randomnessPool);
+                        } else {
+                            System.out.println("Must be at least 1.");
+                        }
+                    } catch (NumberFormatException e) {
+                        System.out.println("Invalid number.");
+                    }
+                }
                 case EXIT -> {
                     break out;
                 }
-                default -> {
-                }
-            }
-
-            System.out.println("Select Algorithm: [0] Frequency (Bigram)  [1] N-Gram Context (Trigram)");
-            Algo algo;
-            try {
-                int input = Integer.parseInt(scanner.nextLine());
-                algo = Algo.fromInput(input);
-            } catch (Exception e) {
-                System.out.println("Please select a valid option");
-                continue;
-            }
-
-            switch (mode) {
-                case AUTOCOMPLETE -> runAutocomplete(scanner, algo);
-                case GENERATE -> runGeneration(scanner, algo);
                 default -> System.out.println("Unhandled mode: " + mode);
             }
         }
     }
 
-    private void runAutocomplete(Scanner scanner, Algo algo) {
+    private void runAutocomplete(Scanner scanner) {
         System.out.println("Start typing. End with a space to see suggestions. Type '.', '!', or '?' to quit.");
         StringBuilder currentInput = new StringBuilder();
 
@@ -170,15 +168,16 @@ public class SentenceBuilder {
             String[] words = currentInput.toString().trim().split(" ");
 
             List<String> suggestions = new ArrayList<>();
-            if (algo == Algo.TRIGRAM && words.length >= 2) {
+
+            // 1. Try Trigram context first
+            if (words.length >= 2) {
                 String key = words[words.length - 2] + " " + words[words.length - 1];
                 suggestions = trigramMap.getOrDefault(key, new ArrayList<>());
-            } else {
+            } else if (suggestions.isEmpty() && words.length >= 1) {
+                // 2. Fallback to Bigram if Trigram fails
                 String key = words[words.length - 1];
                 suggestions = bigramMap.getOrDefault(key, new ArrayList<>());
-            }
-
-            if (suggestions.isEmpty() && words.length <= 1) {
+            } else if (suggestions.isEmpty() && words.length <= 1) {
                 suggestions = new ArrayList<>(sentenceStarters);
             }
 
@@ -217,7 +216,7 @@ public class SentenceBuilder {
         }
     }
 
-    private void runGeneration(Scanner scanner, Algo algo) {
+    private void runGeneration(Scanner scanner) {
         System.out.print("Enter a starting word: ");
         String rawInput = scanner.nextLine().trim().toLowerCase();
 
@@ -231,24 +230,27 @@ public class SentenceBuilder {
         List<String> sentence = new ArrayList<>();
         sentence.add(currentWord);
 
-        for (int i = 0; i < 15; i++) {
+        for (int i = 0; i < 15; i++) { // Generate up to 15 words
             String nextWord = null;
 
-            if (algo == Algo.TRIGRAM && sentence.size() >= 2) {
+            // 1. Try Trigram context
+            if (sentence.size() >= 2) {
                 String key = sentence.get(sentence.size() - 2) + " " + sentence.get(sentence.size() - 1);
                 List<String> options = trigramMap.get(key);
-                if (options != null && !options.isEmpty())
-                    nextWord = options.get(0);
+                nextWord = pickNextWord(options);
             }
 
+            // 2. Fallback to Bigram
             if (nextWord == null) {
                 List<String> options = bigramMap.get(currentWord);
-                if (options != null && !options.isEmpty())
-                    nextWord = options.get(0);
+                nextWord = pickNextWord(options);
             }
 
             if (nextWord == null)
-                break;
+                nextWord = pickNextWord(sentenceStarters);
+
+            if (nextWord == null)
+                break; // Dead end
 
             sentence.add(nextWord);
             currentWord = nextWord;
@@ -260,6 +262,14 @@ public class SentenceBuilder {
         }
 
         System.out.println("Generated: " + String.join(" ", sentence) + ".");
+    }
+
+    // Helper method for selecting the next word based on randomness settings
+    private String pickNextWord(List<String> options) {
+        if (options == null || options.isEmpty())
+            return null;
+        int bound = Math.min(options.size(), randomnessPool);
+        return options.get(random.nextInt(bound));
     }
 
 }
