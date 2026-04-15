@@ -3,6 +3,7 @@ import java.nio.file.*;
 import java.sql.*;
 import java.util.*;
 import java.util.regex.*;
+import java.util.function.Consumer;
 
 public class CorpusParser {
     private DBMan dbMan;
@@ -14,9 +15,28 @@ public class CorpusParser {
 
     private static final int BATCH_SIZE_LIMIT = 5000;
 
+    //
+    private Consumer<String> onProgress = null;
+
+
     public CorpusParser(DBMan dbMan) {
         this.dbMan = dbMan;
     }
+
+
+    public void setOnProgress(Consumer<String> callback)
+    {
+        this.onProgress = callback;
+    }
+
+    private void reportProgress(String message)
+    {
+        if (onProgress != null)
+        {
+            onProgress.accept(message);
+        }
+    }
+
 
     public void parseDataSources() throws Exception {
         cancelRequested = false;
@@ -167,6 +187,9 @@ public class CorpusParser {
                         trigramBatch.clear();
                         endBatch.clear();
                         batchCounter = 0;
+
+                        final int wc = wordCount;
+                        reportProgress("Parsing " + file.getName() + " - " + String.format("%,d", wc) + " words processed...");
                     }
                 }
             }
@@ -182,15 +205,19 @@ public class CorpusParser {
                 importedFile.fileName = file.getName();
                 importedFile.wordCount = wordCount;
                 dbMan.logImport(importedFile);
+                reportProgress("Done: " + file.getName() + " (" + String.format("%,d", wordCount) + "words)");
             }
 
             dbMan.commit();
 
-        } catch (Exception e) {
+        }
+        catch (Exception e) {
+            reportProgress("Error parsing: " + file.getName() + ": " + e.getMessage());
             e.printStackTrace();
             try {
                 dbMan.rollback();
-            } catch (SQLException ex) {
+            }
+            catch (SQLException ex) {
                 ex.printStackTrace();
             }
         }
