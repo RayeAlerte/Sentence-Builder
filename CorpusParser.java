@@ -38,6 +38,24 @@ public class CorpusParser {
     }
 
 
+    public void parseFiles(List<File> files) throws Exception 
+    {
+        cancelRequested = false;
+        Set<String> alreadyImported = dbMan.getImportedFileNames();
+        for (File file : files)
+        {
+            if (cancelRequested) break;
+            if (alreadyImported.contains(file.getName()))
+            {
+                reportProgress("Skipping (already imported): " + file.getName());
+                continue;
+            }
+            processFile(file, false);
+        }
+    }
+
+
+
     public void parseDataSources() throws Exception {
         cancelRequested = false;
 
