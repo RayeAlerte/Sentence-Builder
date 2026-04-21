@@ -59,6 +59,13 @@ jobs:
     - name: Run Tests
       run: ./test.sh
 
+    - name: Publish Test Summary
+      if: always()
+      run: |
+        if [ -f test-results/report.md ]; then
+          cat test-results/report.md >> $GITHUB_STEP_SUMMARY
+        fi
+
     - name: Upload Test Report
       if: always()
       uses: actions/upload-artifact@v4
