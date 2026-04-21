@@ -1,6 +1,8 @@
 #!/bin/bash
-# 1. Load environment variables
-source .env
+# 1. Load environment variables if .env exists
+if [ -f .env ]; then
+    source .env
+fi
 
 # 2. Paths
 JUNIT="lib/junit-platform-console-standalone-1.11.0.jar"
@@ -14,8 +16,11 @@ RUN_DATE=$(date "+%Y-%m-%d %H:%M:%S")
 
 mkdir -p "$RESULTS_DIR"
 
-echo "Using FX: $FX"
-echo "Using MYSQL: $MYSQL"
+if [ -z "$FX" ] || [ -z "$MYSQL" ]; then
+    echo "⚠️ Warning: FX or MYSQL path not set. Compilation might fail."
+    echo "Current FX: $FX"
+    echo "Current MYSQL: $MYSQL"
+fi
 
 # 3. Compile all source files and tests
 echo "Compiling..."
