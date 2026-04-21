@@ -113,7 +113,7 @@ public class CorpusParser {
         List<Trigram> trigramBatch = new ArrayList<>();
         List<String> endBatch = new ArrayList<>();
 
-        Pattern pattern = Pattern.compile("([a-zA-Z]+(?:['\\-][a-zA-Z]+)*)|([.!?:]|--|—|\\.\\.\\.)");
+        Pattern pattern = Pattern.compile("([a-zA-Z]+(?:['\\-][a-zA-Z]+)*)|(\\.\\.\\.|--|—|[!?:]|\\.(?![A-Za-z0-9])|\\s{2,})");
 
         try (BufferedReader br = new BufferedReader(new FileReader(file))) {
             String line;
@@ -137,6 +137,19 @@ public class CorpusParser {
                     continue;
 
                 line = line.replaceAll("[\"_]", "").toLowerCase();
+
+                // Blank/whitespace-only line ends the current sentence
+                if (line.trim().isEmpty()) {
+                    if (w1 != null) {
+                        endBatch.add(w1);
+                        batchCounter++;
+                        isStartOfSentence = true;
+                        w1 = null;
+                        w2 = null;
+                    }
+                    continue;
+                }
+
                 Matcher matcher = pattern.matcher(line);
 
                 while (matcher.find()) {
@@ -210,6 +223,11 @@ public class CorpusParser {
                         reportProgress("Parsing " + file.getName() + " - " + String.format("%,d", wc) + " words processed...");
                     }
                 }
+            }
+
+            // Capture trailing sentence end when the file finishes mid-sentence (no terminal punct)
+            if (w1 != null) {
+                endBatch.add(w1);
             }
 
             // Flush remaining batches
