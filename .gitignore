@@ -1,11 +1,8 @@
 .env
-/mysql-connector-j-9.6.0
 .DS_Store
+/mysql-connector-j-9.6.0
 /javafx-sdk-25.0.2
-/Prototype/.vscode
+/test-results
 *.class
-
-/Prototype/DataSources/CocaText
-/Prototype/DataSources/Gutenberg
-/Prototype/CleanedTexts
 *.txt
+
