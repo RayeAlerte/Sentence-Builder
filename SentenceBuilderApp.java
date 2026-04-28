@@ -17,13 +17,14 @@ public class SentenceBuilderApp extends Application {
     DBMan dbMan;
     CorpusParser corpusParser;
     SentenceBuilder sentenceBuilder;
+    Reporter reporter;
     Stage primaryStage;
 
     // Track whether SentenceBuilder has been loaded into memory
     private boolean modelLoaded = false;
 
     private BorderPane root;
-    private StackPane  contentArea;
+    private StackPane contentArea;
 
     private Button btnDashboard;
     private Button btnImport;
@@ -50,11 +51,16 @@ public class SentenceBuilderApp extends Application {
         }
 
         corpusParser = new CorpusParser(dbMan);
-        sentenceBuilder = new SentenceBuilder(dbMan);
+        reporter = new Reporter(dbMan);
+        sentenceBuilder = new SentenceBuilder(dbMan, reporter);
 
         stage.setTitle("Sentence Builder");
         stage.setOnCloseRequest(e -> {
-            try { dbMan.disconnect(); } catch (SQLException ex) { ex.printStackTrace(); }
+            try {
+                dbMan.disconnect();
+            } catch (SQLException ex) {
+                ex.printStackTrace();
+            }
         });
 
         root = new BorderPane();

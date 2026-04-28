@@ -7,7 +7,8 @@ public class Main {
 			DBMan dbMan = new DBMan();
 			try {
 				dbMan.connect();
-				SentenceBuilder app = new SentenceBuilder(dbMan);
+				Reporter reporter = new Reporter(dbMan);
+				SentenceBuilder app = new SentenceBuilder(dbMan, reporter);
 				app.loadDatabaseIntoMemory();
 				app.startCLI();
 			} catch (SQLException e) {

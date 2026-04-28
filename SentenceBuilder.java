@@ -3,6 +3,7 @@ import java.sql.*;
 
 public class SentenceBuilder {
     private DBMan dbMan;
+    private Reporter reporter;
 
     // Memory structures
     /* Made public so it can be accessed in ui */
@@ -30,22 +31,11 @@ public class SentenceBuilder {
         }
     }
 
-    enum SortType {
-        ALPHA, FREQ;
-
-        public static SortType fromInput(int input) {
-            return switch (input) {
-                case 0 -> ALPHA;
-                case 1 -> FREQ;
-                default -> throw new IllegalArgumentException("Invalid sort: " + input);
-            };
-        }
-    }
-
     private static final int MAX_CACHE_SIZE = 50000;
 
-    public SentenceBuilder(DBMan dbMan) {
+    public SentenceBuilder(DBMan dbMan, Reporter reporter) {
         this.dbMan = dbMan;
+        this.reporter = reporter;
     }
 
     public void loadDatabaseIntoMemory() throws SQLException {
@@ -190,32 +180,24 @@ public class SentenceBuilder {
     }
 
     private void runReporting(Scanner scanner) {
-        SortType sort = null;
+        Reporter.SortType sort = null;
         do {
             System.out.print("Select Sorting Mode [0] Alphabetical [1] Frequency: ");
             try {
                 int input = Integer.parseInt(scanner.nextLine());
-                sort = SortType.fromInput(input);
+                sort = Reporter.SortType.fromInput(input);
             } catch (Exception e) {
                 System.out.println("Please select a valid option");
             }
         } while (sort == null);
 
-        try {
-            List<Word> words = switch (sort) {
-                case ALPHA -> dbMan.getAllWordsSortedAlpha();
-                case FREQ -> dbMan.getAllWordsSortedByFrequency();
-            };
-
-            System.out.println("\n--- Word Report ---");
-            for (Word w : words) {
-                System.out.println(w.word +
-                        " | total: " + w.totalCount +
-                        " | starts: " + w.startCount +
-                        " | ends: " + w.endCount);
-            }
-        } catch (SQLException e) {
-            System.out.println("Error fetching report: " + e.getMessage());
+        reporter.setSortType(sort);
+        List<Word> words = reporter.getSortedWords();
+        for (Word w : words) {
+            System.out.println(w.word +
+                    " | total: " + w.totalCount +
+                    " | starts: " + w.startCount +
+                    " | ends: " + w.endCount);
         }
     }
 
