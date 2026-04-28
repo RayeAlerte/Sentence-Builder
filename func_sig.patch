@@ -1,0 +1,60 @@
+diff --git a/SentenceBuilder.java b/SentenceBuilder.java
+index 369473c..673a141 100644
+--- a/SentenceBuilder.java
++++ b/SentenceBuilder.java
+@@ -151,10 +151,9 @@ public class SentenceBuilder {
+         }
+     }
+ 
+-    private void runAutocomplete(Scanner scanner) {
+-        System.out.println("Start typing. End with a space to see suggestions. Type '.', '!', or '?' to quit.");
++    public List<String> runAutocomplete(String sentence) {
+         StringBuilder currentInput = new StringBuilder();
+-
++        Scanner scanner = new Scanner(sentence);
+         while (true) {
+             System.out.print("Input: " + currentInput);
+             String token = scanner.nextLine().toLowerCase();
+@@ -181,9 +180,11 @@ public class SentenceBuilder {
+                 suggestions = new ArrayList<>(sentenceStarters);
+             }
+ 
+-            System.out.println("--> Suggestions: "
+-                    + (suggestions.isEmpty() ? "None" : suggestions.subList(0, Math.min(5, suggestions.size()))));
++            scanner.close();
++            return suggestions;
+         }
++        scanner.close();
++        return null;
+     }
+ 
+     private void runReporting(Scanner scanner) {
+@@ -216,14 +217,15 @@ public class SentenceBuilder {
+         }
+     }
+ 
+-    private void runGeneration(Scanner scanner) {
+-        System.out.print("Enter a starting word: ");
++    private List<String> runGeneration(String og_sentence) {
++        Scanner scanner = new Scanner(og_sentence);
+         String rawInput = scanner.nextLine().trim().toLowerCase();
+ 
+         String[] inputWords = rawInput.split("\\s+");
+         if (inputWords.length == 0 || inputWords[0].isEmpty()) {
+             System.out.println("Invalid input.");
+-            return;
++            scanner.close();
++            return null;
+         }
+         String currentWord = inputWords[0];
+ 
+@@ -261,7 +263,8 @@ public class SentenceBuilder {
+             sentence.set(0, firstWord.substring(0, 1).toUpperCase() + firstWord.substring(1));
+         }
+ 
+-        System.out.println("Generated: " + String.join(" ", sentence) + ".");
++        scanner.close();
++        return sentence;
+     }
+ 
+     // Helper method for selecting the next word based on randomness settings
