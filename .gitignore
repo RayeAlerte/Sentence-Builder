@@ -9,3 +9,7 @@
 /Prototype/DataSources/Gutenberg
 /Prototype/CleanedTexts
 *.txt
+
+javafx-sdk-25.0.3
+
+*.db
