@@ -5,13 +5,15 @@ public class SentenceBuilder {
     private DBMan dbMan;
 
     // Memory structures
-    private Map<String, List<String>> bigramMap = new HashMap<>();
-    private Map<String, List<String>> trigramMap = new HashMap<>();
-    private List<String> sentenceStarters = new ArrayList<>();
+    /* Made public so it can be accessed in ui */
+    public Map<String, List<String>> bigramMap = new HashMap<>();
+    public Map<String, List<String>> trigramMap = new HashMap<>();
+    public List<String> sentenceStarters = new ArrayList<>();
 
     // Randomizers
     private Random random = new Random();
-    private int randomnessPool = 1; // 1 = Greedy (Top result), >1 = Random from Top N
+    /* Made public so it can be accessed in ui */
+    public int randomnessPool = 1; // 1 = Greedy (Top result), >1 = Random from Top N
 
     enum CLIMode {
         REPORTING, AUTOCOMPLETE, GENERATE, OPTIONS, EXIT;
@@ -119,10 +121,10 @@ public class SentenceBuilder {
 
             switch (mode) {
                 case AUTOCOMPLETE -> {
-                    runAutocomplete(scanner);
+                    // runAutocomplete(scanner);
                 }
                 case GENERATE -> {
-                    runGeneration(scanner);
+                    // runGeneration(scanner);
                 }
                 case REPORTING -> {
                     runReporting(scanner);
@@ -151,10 +153,9 @@ public class SentenceBuilder {
         }
     }
 
-    private void runAutocomplete(Scanner scanner) {
-        System.out.println("Start typing. End with a space to see suggestions. Type '.', '!', or '?' to quit.");
+    public List<String> runAutocomplete(String sentence) {
         StringBuilder currentInput = new StringBuilder();
-
+        Scanner scanner = new Scanner(sentence);
         while (true) {
             System.out.print("Input: " + currentInput);
             String token = scanner.nextLine().toLowerCase();
@@ -181,9 +182,11 @@ public class SentenceBuilder {
                 suggestions = new ArrayList<>(sentenceStarters);
             }
 
-            System.out.println("--> Suggestions: "
-                    + (suggestions.isEmpty() ? "None" : suggestions.subList(0, Math.min(5, suggestions.size()))));
+            scanner.close();
+            return suggestions;
         }
+        scanner.close();
+        return null;
     }
 
     private void runReporting(Scanner scanner) {
@@ -216,14 +219,15 @@ public class SentenceBuilder {
         }
     }
 
-    private void runGeneration(Scanner scanner) {
-        System.out.print("Enter a starting word: ");
+    public List<String> runGeneration(String og_sentence) {
+        Scanner scanner = new Scanner(og_sentence);
         String rawInput = scanner.nextLine().trim().toLowerCase();
 
         String[] inputWords = rawInput.split("\\s+");
         if (inputWords.length == 0 || inputWords[0].isEmpty()) {
             System.out.println("Invalid input.");
-            return;
+            scanner.close();
+            return null;
         }
         String currentWord = inputWords[0];
 
@@ -261,11 +265,13 @@ public class SentenceBuilder {
             sentence.set(0, firstWord.substring(0, 1).toUpperCase() + firstWord.substring(1));
         }
 
-        System.out.println("Generated: " + String.join(" ", sentence) + ".");
+        scanner.close();
+        return sentence;
     }
 
     // Helper method for selecting the next word based on randomness settings
-    private String pickNextWord(List<String> options) {
+    /* Made public so it can be accessed in ui */
+    public String pickNextWord(List<String> options) {
         if (options == null || options.isEmpty())
             return null;
         int bound = Math.min(options.size(), randomnessPool);
