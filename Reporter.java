@@ -21,6 +21,7 @@ public class Reporter {
 
 	public Reporter(DBMan db) {
 		dbMan = db;
+		type = SortType.FREQ;
 	}
 
 	public void setSortType(SortType s) {
