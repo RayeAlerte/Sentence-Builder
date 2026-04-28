@@ -1,16 +1,89 @@
+import java.io.File;
+import java.io.FileNotFoundException;
 import java.sql.*;
 import java.util.*;
 
 public class DBMan {
-	private static final String DB_URL = "jdbc:mysql://localhost:3306/BuilderWords";
-	private static final String USER = "sentencebuilder";
-	private static final String PASS = "Yo457S<DWL.D";
+	private static final String DB_URL = "jdbc:sqlite:BuilderWords.db";
+//	private static final String USER = "sentencebuilder";
+//	private static final String PASS = "Yo457S<DWL.D";
 
 	private Connection conn;
 
 	public void connect() throws SQLException {
-		conn = DriverManager.getConnection(DB_URL, USER, PASS);
+//		conn = DriverManager.getConnection(DB_URL, USER, PASS);
+		conn = DriverManager.getConnection(DB_URL);
 		conn.setAutoCommit(false);
+
+		migrateIfNecessary();
+	}
+
+	private boolean tableExists(String tableName) throws SQLException {
+		String sql = "SELECT name FROM sqlite_master WHERE type='table' AND name=?";
+		
+		try (PreparedStatement ps = conn.prepareStatement(sql)) {
+			ps.setString(1, tableName);
+			try (ResultSet rs = ps.executeQuery()) {
+				return rs.next(); // return true if we found a row (i.e. if the table exists)
+			}
+		}
+	}
+
+    private static List<File> getMigrations() {
+        File dir = new File("migrations/");
+        
+		// list the migrations
+        File[] filesArray = dir.listFiles();
+        
+        List<File> fileList = new ArrayList<>();
+        
+        if (filesArray != null) {
+            fileList.addAll(Arrays.asList(filesArray));
+            
+            Collections.sort(fileList);
+        }
+        return fileList;
+    }
+
+	private void runSqlFile(File sqlFile) throws SQLException {
+		try {
+			try (Scanner scanner = new Scanner(sqlFile).useDelimiter(";")) {
+				try (Statement stmt = conn.createStatement()) {
+					while (scanner.hasNext()) {
+						String line = scanner.next().trim();
+						if (!line.isEmpty()) {
+							stmt.execute(line);
+						}
+					}
+				}
+			}
+		} catch (FileNotFoundException e){
+			// not possible
+		}
+	}
+
+	// applies database migrations if needed
+	private void migrateIfNecessary() throws SQLException {
+		List<String> appliedMigrations = new ArrayList<>();
+		if (tableExists("Migrations")){
+			String sql = "SELECT filename FROM Migrations";
+			try (Statement stmt = conn.createStatement(); ResultSet rs = stmt.executeQuery(sql)){
+				while (rs.next()){
+					appliedMigrations.add(rs.getString("filename"));
+				}
+			}
+		}
+		for (File migration : getMigrations()){
+			if (!appliedMigrations.contains(migration.getName())) {
+				runSqlFile(migration);
+				String sql = "INSERT INTO migrations (filename) VALUES (?)";
+				try (PreparedStatement ps = conn.prepareStatement(sql)) {
+					ps.setString(1, migration.getName());
+					ps.executeUpdate();
+				}
+
+			}
+		}
 	}
 
 	public void disconnect() throws SQLException {
@@ -51,8 +124,13 @@ public class DBMan {
 	}
 
 	public void logImport(ImportedFile file) throws SQLException {
+// old mysql queries
+//		String sql = "INSERT INTO ImportedFiles (file_name, word_count) VALUES (?, ?) " +
+//				"ON DUPLICATE KEY UPDATE word_count = VALUES(word_count), " +
+//				"import_date = CURRENT_TIMESTAMP";
 		String sql = "INSERT INTO ImportedFiles (file_name, word_count) VALUES (?, ?) " +
-				"ON DUPLICATE KEY UPDATE word_count = VALUES(word_count), " +
+				"ON CONFLICT(file_name) DO UPDATE SET " +
+				"word_count = excluded.word_count, " +
 				"import_date = CURRENT_TIMESTAMP";
 		try (PreparedStatement ps = conn.prepareStatement(sql)) {
 			ps.setString(1, file.fileName);
@@ -62,10 +140,16 @@ public class DBMan {
 	}
 
 	public void insertWords(List<WordEntry> words) throws SQLException {
+// old mysql queries
+//		String sql = "INSERT INTO WordCorpus (word, total_count, start_count, end_count) " +
+//				"VALUES (?, 1, ?, 0) " +
+//				"ON DUPLICATE KEY UPDATE total_count = total_count + 1, " +
+//				"start_count = start_count + VALUES(start_count)";
 		String sql = "INSERT INTO WordCorpus (word, total_count, start_count, end_count) " +
-				"VALUES (?, 1, ?, 0) " +
-				"ON DUPLICATE KEY UPDATE total_count = total_count + 1, " +
-				"start_count = start_count + VALUES(start_count)";
+                "VALUES (?, 1, ?, 0) " +
+                "ON CONFLICT(word) DO UPDATE SET " +
+                "total_count = WordCorpus.total_count + 1, " +
+                "start_count = WordCorpus.start_count + excluded.start_count";
 		try (PreparedStatement ps = conn.prepareStatement(sql)) {
 			for (WordEntry entry : words) {
 				ps.setString(1, entry.word);
@@ -77,8 +161,11 @@ public class DBMan {
 	}
 
 	public void insertBigrams(List<Bigram> bigrams) throws SQLException {
+// old mysql queries
+//		String sql = "INSERT INTO Bigrams (word1, word2, frequency) VALUES (?, ?, 1) " +
+//				"ON DUPLICATE KEY UPDATE frequency = frequency + 1";
 		String sql = "INSERT INTO Bigrams (word1, word2, frequency) VALUES (?, ?, 1) " +
-				"ON DUPLICATE KEY UPDATE frequency = frequency + 1";
+                "ON CONFLICT(word1, word2) DO UPDATE SET frequency = frequency + 1";
 		try (PreparedStatement ps = conn.prepareStatement(sql)) {
 			for (Bigram bigram : bigrams) {
 				ps.setString(1, bigram.word1);
@@ -90,8 +177,11 @@ public class DBMan {
 	}
 
 	public void insertTrigrams(List<Trigram> trigrams) throws SQLException {
+// old mysql queries
+//		String sql = "INSERT INTO Trigrams (word1, word2, word3, frequency) VALUES (?, ?, ?, 1) " +
+//				"ON DUPLICATE KEY UPDATE frequency = frequency + 1";
 		String sql = "INSERT INTO Trigrams (word1, word2, word3, frequency) VALUES (?, ?, ?, 1) " +
-				"ON DUPLICATE KEY UPDATE frequency = frequency + 1";
+                "ON CONFLICT(word1, word2, word3) DO UPDATE SET frequency = frequency + 1";
 		try (PreparedStatement ps = conn.prepareStatement(sql)) {
 			for (Trigram trigram : trigrams) {
 				ps.setString(1, trigram.word1);
