@@ -15,6 +15,17 @@ public class Reporter {
 				default -> throw new IllegalArgumentException("Invalid sort: " + input);
 			};
 		}
+
+        // For the drop down menu thingy
+        public String displayName()
+        {
+            return switch (this)
+            {
+                case ALPHA -> "Alphabetical";
+                case FREQ -> "Frequency";
+            };
+        }
+                
 	}
 
 	private SortType type;

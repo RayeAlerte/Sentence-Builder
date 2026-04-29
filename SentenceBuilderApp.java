@@ -30,7 +30,6 @@ public class SentenceBuilderApp extends Application {
     private Button btnImport;
     private Button btnGenerate;
     private Button btnAutoComplete;
-    private Button btnWordBrowser;
     private Button btnReports;
 
     @Override
@@ -92,20 +91,18 @@ public class SentenceBuilderApp extends Application {
         btnImport = navButton("Import Text");
         btnGenerate = navButton("Generate");
         btnAutoComplete = navButton("Auto-complete");
-        btnWordBrowser = navButton("Word Browser");
         btnReports = navButton("Reports");
 
         btnDashboard.setOnAction(e -> showDashboard());
         btnImport.setOnAction(e -> showImport());
         btnGenerate.setOnAction(e -> showGenerate());
         btnAutoComplete.setOnAction(e -> showAutoComplete());
-        btnWordBrowser.setOnAction(e -> showPlaceholder("Word Browser", btnWordBrowser));
-        btnReports.setOnAction(e -> showPlaceholder("Reports", btnReports));
+        btnReports.setOnAction(e -> showReports());
 
         sb.getChildren().addAll(
                 title, new Separator(),
                 btnDashboard, btnImport, btnGenerate,
-                btnAutoComplete, btnWordBrowser, btnReports);
+                btnAutoComplete, btnReports);
         return sb;
     }
 
@@ -148,7 +145,7 @@ public class SentenceBuilderApp extends Application {
     private void setActive(Button active)
     {
         for (Button b : new Button[]{btnDashboard, btnImport, btnGenerate,
-                                      btnAutoComplete, btnWordBrowser, btnReports})
+                                      btnAutoComplete, btnReports})
             b.setStyle(navStyle(false));
         active.setStyle(navStyleActive());
     }
@@ -497,48 +494,7 @@ public class SentenceBuilderApp extends Application {
             if (e.getCode() == KeyCode.ENTER) generateBtn.fire();
         });
     }
-
-    // Calls SentenceBuilder's generation logic and returns the sentence string
-    private String generateSentence(String startWord) 
-    {
-        Map<String, List<String>> bigramMap = sentenceBuilder.bigramMap;
-        Map<String, List<String>> trigramMap = sentenceBuilder.trigramMap;
-        List<String> starters = sentenceBuilder.sentenceStarters;
-
-        List<String> sentence = new ArrayList<>();
-        sentence.add(startWord);
-        String currentWord = startWord;
-
-        for (int i = 0; i < 15; i++) 
-        {
-            String nextWord = null;
-
-            if (sentence.size() >= 2) 
-            {
-                String key = sentence.get(sentence.size() - 2) + " " + sentence.get(sentence.size() - 1);
-                nextWord = sentenceBuilder.pickNextWord(trigramMap.get(key));
-            }
-
-            if (nextWord == null)
-                nextWord = sentenceBuilder.pickNextWord(bigramMap.get(currentWord));
-
-            if (nextWord == null)
-                nextWord = sentenceBuilder.pickNextWord(starters);
-
-            if (nextWord == null) break;
-
-            sentence.add(nextWord);
-            currentWord = nextWord;
-        }
-
-        if (!sentence.isEmpty()) {
-            String first = sentence.get(0);
-            sentence.set(0, first.substring(0, 1).toUpperCase() + first.substring(1));
-        }
-
-        return String.join(" ", sentence) + ".";
-    }
-
+    
     // Auto Complete Screen
     private void showAutoComplete() {
         setActive(btnAutoComplete);
@@ -662,7 +618,104 @@ public class SentenceBuilderApp extends Application {
         }, statusLabel);
     }
 
-    // Helper so chip click logic isn't duplicated
+    private void showReports()
+    {
+        setActive(btnReports);
+
+        VBox page = new VBox(15);
+        page.setPadding(new Insets(25));
+
+        Label heading = new Label("Reports");
+        heading.setStyle("-fx-font-size: 20px; -fx-font-weight: bold;");
+
+        Label sortLabel = new Label("Sort by:");
+        sortLabel.setStyle("-fx-font-size: 13px; -fx-text-fill: #666666;");
+
+        ComboBox<Reporter.SortType> sortBox = new ComboBox<>();
+        sortBox.getItems().addAll(Reporter.SortType.values());
+
+        sortBox.setCellFactory(lv -> new ListCell<>() {
+            @Override protected void updateItem(Reporter.SortType item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty || item == null ? "" : item.displayName());
+            }
+        });
+
+        sortBox.setButtonCell(new ListCell<>() {
+            @Override
+            protected void updateItem(Reporter.SortType item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty || item == null ? "" : item.displayName());
+            }
+        });
+
+        sortBox.setValue(reporter.getSortType());
+        sortBox.setStyle("-fx-font-size: 13px;");
+
+        HBox sortRow = new HBox(10, sortLabel, sortBox);
+        sortRow.setAlignment(Pos.CENTER_LEFT);
+
+        Label statusLabel = new Label("Loading...");
+        statusLabel.setStyle("-fx-font-size: 13px; -fx-text-fill: #888888;");
+
+        TableView<WordRow> table = new TableView<>();
+        table.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
+        VBox.setVgrow(table, Priority.ALWAYS);
+        table.setPlaceholder(new Label("No words found."));
+
+        TableColumn<WordRow, String> colWord = new TableColumn<>("Word");
+        TableColumn<WordRow, String> colTotal = new TableColumn<>("Frequency");
+
+        colWord.setCellValueFactory(d ->
+                new javafx.beans.property.SimpleStringProperty(d.getValue().word));
+        colTotal.setCellValueFactory(d ->
+                new javafx.beans.property.SimpleStringProperty(d.getValue().total));
+
+        colWord.setPrefWidth(220);
+        colTotal.setPrefWidth(120);
+
+        table.getColumns().add(colWord);
+        table.getColumns().add(colTotal);
+        page.getChildren().addAll(heading, sortRow, statusLabel, table);
+        contentArea.getChildren().setAll(page);
+
+        Runnable loadData = () -> {
+            Reporter.SortType selected = sortBox.getValue();
+            reporter.setSortType(selected);
+            statusLabel.setText("Loading...");
+            table.getItems().clear();
+
+            Thread t = new Thread(() -> {
+                List<Word> words = reporter.getSortedWords();
+
+                if (words == null) 
+                {
+                    Platform.runLater(() -> statusLabel.setText("Error loading data."));
+                    return;
+                }
+
+                List<WordRow> rows = new ArrayList<>();
+                for (Word w : words) 
+                    rows.add(new WordRow(
+                                w.word, 
+                                String.format("%,d", w.totalCount)));
+
+                Platform.runLater(() -> {
+                    table.getItems().setAll(rows);
+                    statusLabel.setText(String.format("%,d words", rows.size()));
+                });
+            });
+            t.setDaemon(true);
+            t.start();
+        };
+
+        sortBox.setOnAction(e -> loadData.run());
+        loadData.run();
+    }
+
+
+
+    // Helper so chip click logic isn't duplicatedMarket
     private Button chipButton(String word, TextArea inputArea, HBox chipsBox) 
     {
         Button chip = new Button(word);
@@ -685,30 +738,11 @@ public class SentenceBuilderApp extends Application {
         return chip;
     }
 
-    // Placeholder text :D
-    private void showPlaceholder(String name, Button btn) 
-    {
-        setActive(btn);
-
-        VBox page = new VBox(12);
-        page.setPadding(new Insets(25));
-        page.setAlignment(Pos.TOP_LEFT);
-
-        Label heading = new Label(name);
-        heading.setStyle("-fx-font-size: 20px; -fx-font-weight: bold;");
-
-        Label sub = new Label("This screen is coming soon.");
-        sub.setStyle("-fx-font-size: 13px; -fx-text-fill: #888888;");
-
-        page.getChildren().addAll(heading, sub);
-        contentArea.getChildren().setAll(page);
-    }
-
     // Shared Helpers
     private TableView<FileRow> buildImportTable() 
     {
         TableView<FileRow> table = new TableView<>();
-        table.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY);
+        table.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
         table.setPrefHeight(180);
         table.setPlaceholder(new Label("No files imported yet."));
 
@@ -727,7 +761,9 @@ public class SentenceBuilderApp extends Application {
         colWords.setPrefWidth(100);
         colDate.setPrefWidth(140);
 
-        table.getColumns().addAll(colName, colWords, colDate);
+        table.getColumns().add(colName);
+        table.getColumns().add(colWords);
+        table.getColumns().add(colDate);
         return table;
     }
 
@@ -769,4 +805,13 @@ public class SentenceBuilderApp extends Application {
             this.name = name; this.words = words; this.date = date;
         }
     }
+
+    public static class WordRow 
+    {
+        String word, total;
+        WordRow(String word, String total) {
+            this.word = word; this.total = total;
+        }
+    }
+
 }
