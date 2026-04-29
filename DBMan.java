@@ -486,19 +486,46 @@ public class DBMan {
 				w.totalCount = rs.getInt("total_count");
 				w.startCount = rs.getInt("start_count");
 				w.endCount = rs.getInt("end_count");
+				w.boostTotalCount = rs.getInt("boost_total_count");
+				w.boostStartCount = rs.getInt("boost_start_count");
+				w.effectiveTotalCount = rs.getInt("effective_total_count");
 				words.add(w);
 			}
 		}
 		return words;
 	}
 
-	public List<Word> getAllWordsSortedAlpha() throws SQLException {
-		return queryWords("SELECT word, total_count, start_count, end_count FROM WordCorpus ORDER BY word ASC");
+	private String scopeFilter(Reporter.ScopeType scope) {
+		return switch (scope) {
+			case USER_ONLY -> " WHERE (boost_total_count > 0 OR boost_start_count > 0)";
+			case CORPUS_ONLY -> " WHERE (boost_total_count = 0 AND boost_start_count = 0)";
+			case ALL -> "";
+		};
 	}
 
-	public List<Word> getAllWordsSortedByFrequency() throws SQLException {
-		return queryWords(
-				"SELECT word, total_count, start_count, end_count FROM WordCorpus ORDER BY total_count DESC");
+	private String baseWordSelect() {
+		return "SELECT word, total_count, start_count, end_count, boost_total_count, boost_start_count, " +
+				"(total_count + boost_total_count) AS effective_total_count FROM WordCorpus";
+	}
+
+	public List<Word> getAllWordsSortedAlpha(Reporter.ScopeType scope) throws SQLException {
+		return queryWords(baseWordSelect() + scopeFilter(scope) + " ORDER BY word ASC");
+	}
+
+	public List<Word> getAllWordsSortedByFrequency(Reporter.ScopeType scope) throws SQLException {
+		return queryWords(baseWordSelect() + scopeFilter(scope) + " ORDER BY total_count DESC");
+	}
+
+	public List<Word> getAllWordsSortedByBoostTotal(Reporter.ScopeType scope) throws SQLException {
+		return queryWords(baseWordSelect() + scopeFilter(scope) + " ORDER BY boost_total_count DESC, total_count DESC");
+	}
+
+	public List<Word> getAllWordsSortedByBoostStart(Reporter.ScopeType scope) throws SQLException {
+		return queryWords(baseWordSelect() + scopeFilter(scope) + " ORDER BY boost_start_count DESC, start_count DESC");
+	}
+
+	public List<Word> getAllWordsSortedByEffectiveTotal(Reporter.ScopeType scope) throws SQLException {
+		return queryWords(baseWordSelect() + scopeFilter(scope) + " ORDER BY effective_total_count DESC");
 	}
 
 	public List<ImportedFile> getImportedFiles(int amount) throws SQLException {

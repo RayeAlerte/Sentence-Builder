@@ -9,6 +9,9 @@ import javafx.scene.layout.*;
 import javafx.stage.FileChooser;
 import javafx.stage.Stage;
 import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.io.PrintWriter;
 import java.sql.*;
 import java.util.*;
 
@@ -72,7 +75,7 @@ public class SentenceBuilderApp extends Application {
 
         showDashboard();
 
-        stage.setScene(new Scene(root, 900, 600));
+        stage.setScene(new Scene(root, 900, 750));
         stage.show();
     }
 
@@ -668,6 +671,8 @@ public class SentenceBuilderApp extends Application {
 
         Label sortLabel = new Label("Sort by:");
         sortLabel.setStyle("-fx-font-size: 13px; -fx-text-fill: #666666;");
+        Label scopeLabel = new Label("Scope:");
+        scopeLabel.setStyle("-fx-font-size: 13px; -fx-text-fill: #666666;");
 
         ComboBox<Reporter.SortType> sortBox = new ComboBox<>();
         sortBox.getItems().addAll(Reporter.SortType.values());
@@ -690,7 +695,28 @@ public class SentenceBuilderApp extends Application {
         sortBox.setValue(reporter.getSortType());
         sortBox.setStyle("-fx-font-size: 13px;");
 
-        HBox sortRow = new HBox(10, sortLabel, sortBox);
+        ComboBox<Reporter.ScopeType> scopeBox = new ComboBox<>();
+        scopeBox.getItems().addAll(Reporter.ScopeType.values());
+        scopeBox.setCellFactory(lv -> new ListCell<>() {
+            @Override protected void updateItem(Reporter.ScopeType item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty || item == null ? "" : item.displayName());
+            }
+        });
+        scopeBox.setButtonCell(new ListCell<>() {
+            @Override
+            protected void updateItem(Reporter.ScopeType item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty || item == null ? "" : item.displayName());
+            }
+        });
+        scopeBox.setValue(reporter.getScopeType());
+        scopeBox.setStyle("-fx-font-size: 13px;");
+
+        Button exportBtn = new Button("Export CSV");
+        exportBtn.setStyle("-fx-padding: 6 12 6 12;");
+
+        HBox sortRow = new HBox(10, sortLabel, sortBox, scopeLabel, scopeBox, exportBtn);
         sortRow.setAlignment(Pos.CENTER_LEFT);
 
         Label statusLabel = new Label("Loading...");
@@ -705,6 +731,9 @@ public class SentenceBuilderApp extends Application {
         TableColumn<WordRow, String> colTotal = new TableColumn<>("Frequency");
         TableColumn<WordRow, String> colStart = new TableColumn<>("Starts");
         TableColumn<WordRow, String> colEnd = new TableColumn<>("Ends");
+        TableColumn<WordRow, String> colBoostTotal = new TableColumn<>("Boost Total");
+        TableColumn<WordRow, String> colBoostStart = new TableColumn<>("Boost Starts");
+        TableColumn<WordRow, String> colEffectiveTotal = new TableColumn<>("Effective Total");
 
         colWord.setCellValueFactory(d ->
                 new javafx.beans.property.SimpleStringProperty(d.getValue().word));
@@ -714,22 +743,36 @@ public class SentenceBuilderApp extends Application {
                 new javafx.beans.property.SimpleStringProperty(d.getValue().starts));
         colEnd.setCellValueFactory(d ->
                 new javafx.beans.property.SimpleStringProperty(d.getValue().ends));
+        colBoostTotal.setCellValueFactory(d ->
+                new javafx.beans.property.SimpleStringProperty(d.getValue().boostTotal));
+        colBoostStart.setCellValueFactory(d ->
+                new javafx.beans.property.SimpleStringProperty(d.getValue().boostStarts));
+        colEffectiveTotal.setCellValueFactory(d ->
+                new javafx.beans.property.SimpleStringProperty(d.getValue().effectiveTotal));
 
         colWord.setPrefWidth(220);
         colTotal.setPrefWidth(120);
         colStart.setPrefWidth(100);
         colEnd.setPrefWidth(100);
+        colBoostTotal.setPrefWidth(110);
+        colBoostStart.setPrefWidth(110);
+        colEffectiveTotal.setPrefWidth(130);
 
         table.getColumns().add(colWord);
         table.getColumns().add(colTotal);
         table.getColumns().add(colStart);
         table.getColumns().add(colEnd);
+        table.getColumns().add(colBoostTotal);
+        table.getColumns().add(colBoostStart);
+        table.getColumns().add(colEffectiveTotal);
         page.getChildren().addAll(heading, sortRow, statusLabel, table);
         contentArea.getChildren().setAll(page);
 
         Runnable loadData = () -> {
             Reporter.SortType selected = sortBox.getValue();
             reporter.setSortType(selected);
+            Reporter.ScopeType scope = scopeBox.getValue();
+            reporter.setScopeType(scope);
             statusLabel.setText("Loading...");
             table.getItems().clear();
 
@@ -748,7 +791,10 @@ public class SentenceBuilderApp extends Application {
                                 w.word, 
                                 String.format("%,d", w.totalCount),
                                 String.format("%,d", w.startCount),
-                                String.format("%,d", w.endCount)));
+                                String.format("%,d", w.endCount),
+                                String.format("%,d", w.boostTotalCount),
+                                String.format("%,d", w.boostStartCount),
+                                String.format("%,d", w.effectiveTotalCount)));
 
                 Platform.runLater(() -> {
                     table.getItems().setAll(rows);
@@ -760,6 +806,22 @@ public class SentenceBuilderApp extends Application {
         };
 
         sortBox.setOnAction(e -> loadData.run());
+        scopeBox.setOnAction(e -> loadData.run());
+        exportBtn.setOnAction(e -> {
+            FileChooser chooser = new FileChooser();
+            chooser.setTitle("Save report as CSV");
+            chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("CSV files (*.csv)", "*.csv"));
+            chooser.setInitialFileName("sentence-builder-report.csv");
+            File file = chooser.showSaveDialog(primaryStage);
+            if (file == null) return;
+
+            try {
+                exportWordRowsToCsv(file, table.getItems());
+                statusLabel.setText("Exported " + table.getItems().size() + " rows to " + file.getName());
+            } catch (IOException ex) {
+                statusLabel.setText("Export failed: " + ex.getMessage());
+            }
+        });
         loadData.run();
     }
 
@@ -857,6 +919,31 @@ public class SentenceBuilderApp extends Application {
         };
     }
 
+    private void exportWordRowsToCsv(File file, List<WordRow> rows) throws IOException {
+        try (PrintWriter writer = new PrintWriter(new FileWriter(file))) {
+            writer.println("word,total_count,start_count,end_count,boost_total_count,boost_start_count,effective_total_count");
+            for (WordRow row : rows) {
+                writer.println(String.join(",",
+                        csvEscape(row.word),
+                        row.totalRaw,
+                        row.startsRaw,
+                        row.endsRaw,
+                        row.boostTotalRaw,
+                        row.boostStartsRaw,
+                        row.effectiveTotalRaw));
+            }
+        }
+    }
+
+    private String csvEscape(String value) {
+        if (value == null) return "";
+        String escaped = value.replace("\"", "\"\"");
+        if (escaped.contains(",") || escaped.contains("\"") || escaped.contains("\n")) {
+            return "\"" + escaped + "\"";
+        }
+        return escaped;
+    }
+
     public static class FileRow 
     {
         String name, words, date;
@@ -867,10 +954,19 @@ public class SentenceBuilderApp extends Application {
 
     public static class WordRow 
     {
-        String word, total, starts, ends;
-        WordRow(String word, String total, String starts, String ends) {
+        String word, total, starts, ends, boostTotal, boostStarts, effectiveTotal;
+        String totalRaw, startsRaw, endsRaw, boostTotalRaw, boostStartsRaw, effectiveTotalRaw;
+        WordRow(String word, String total, String starts, String ends,
+                String boostTotal, String boostStarts, String effectiveTotal) {
             this.word = word; this.total = total;
             this.starts = starts; this.ends = ends;
+            this.boostTotal = boostTotal; this.boostStarts = boostStarts; this.effectiveTotal = effectiveTotal;
+            this.totalRaw = total.replace(",", "");
+            this.startsRaw = starts.replace(",", "");
+            this.endsRaw = ends.replace(",", "");
+            this.boostTotalRaw = boostTotal.replace(",", "");
+            this.boostStartsRaw = boostStarts.replace(",", "");
+            this.effectiveTotalRaw = effectiveTotal.replace(",", "");
         }
     }
 
