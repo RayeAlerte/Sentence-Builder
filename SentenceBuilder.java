@@ -3,15 +3,18 @@ import java.sql.*;
 
 public class SentenceBuilder {
     private DBMan dbMan;
+    private Reporter reporter;
 
     // Memory structures
-    private Map<String, List<String>> bigramMap = new HashMap<>();
-    private Map<String, List<String>> trigramMap = new HashMap<>();
-    private List<String> sentenceStarters = new ArrayList<>();
+    /* Made public so it can be accessed in ui */
+    public Map<String, List<String>> bigramMap = new HashMap<>();
+    public Map<String, List<String>> trigramMap = new HashMap<>();
+    public List<String> sentenceStarters = new ArrayList<>();
 
     // Randomizers
     private Random random = new Random();
-    private int randomnessPool = 1; // 1 = Greedy (Top result), >1 = Random from Top N
+    /* Made public so it can be accessed in ui */
+    public int randomnessPool = 1; // 1 = Greedy (Top result), >1 = Random from Top N
 
     enum CLIMode {
         REPORTING, AUTOCOMPLETE, GENERATE, OPTIONS, EXIT;
@@ -28,22 +31,11 @@ public class SentenceBuilder {
         }
     }
 
-    enum SortType {
-        ALPHA, FREQ;
-
-        public static SortType fromInput(int input) {
-            return switch (input) {
-                case 0 -> ALPHA;
-                case 1 -> FREQ;
-                default -> throw new IllegalArgumentException("Invalid sort: " + input);
-            };
-        }
-    }
-
     private static final int MAX_CACHE_SIZE = 50000;
 
-    public SentenceBuilder(DBMan dbMan) {
+    public SentenceBuilder(DBMan dbMan, Reporter reporter) {
         this.dbMan = dbMan;
+        this.reporter = reporter;
     }
 
     public void loadDatabaseIntoMemory() throws SQLException {
@@ -119,10 +111,10 @@ public class SentenceBuilder {
 
             switch (mode) {
                 case AUTOCOMPLETE -> {
-                    runAutocomplete(scanner);
+                    // runAutocomplete(scanner);
                 }
                 case GENERATE -> {
-                    runGeneration(scanner);
+                    // runGeneration(scanner);
                 }
                 case REPORTING -> {
                     runReporting(scanner);
@@ -151,10 +143,9 @@ public class SentenceBuilder {
         }
     }
 
-    private void runAutocomplete(Scanner scanner) {
-        System.out.println("Start typing. End with a space to see suggestions. Type '.', '!', or '?' to quit.");
+    public List<String> runAutocomplete(String sentence) {
         StringBuilder currentInput = new StringBuilder();
-
+        Scanner scanner = new Scanner(sentence);
         while (true) {
             System.out.print("Input: " + currentInput);
             String token = scanner.nextLine().toLowerCase();
@@ -181,49 +172,44 @@ public class SentenceBuilder {
                 suggestions = new ArrayList<>(sentenceStarters);
             }
 
-            System.out.println("--> Suggestions: "
-                    + (suggestions.isEmpty() ? "None" : suggestions.subList(0, Math.min(5, suggestions.size()))));
+            scanner.close();
+            return suggestions;
         }
+        scanner.close();
+        return null;
     }
 
     private void runReporting(Scanner scanner) {
-        SortType sort = null;
+        Reporter.SortType sort = null;
         do {
             System.out.print("Select Sorting Mode [0] Alphabetical [1] Frequency: ");
             try {
                 int input = Integer.parseInt(scanner.nextLine());
-                sort = SortType.fromInput(input);
+                sort = Reporter.SortType.fromInput(input);
             } catch (Exception e) {
                 System.out.println("Please select a valid option");
             }
         } while (sort == null);
 
-        try {
-            List<Word> words = switch (sort) {
-                case ALPHA -> dbMan.getAllWordsSortedAlpha();
-                case FREQ -> dbMan.getAllWordsSortedByFrequency();
-            };
-
-            System.out.println("\n--- Word Report ---");
-            for (Word w : words) {
-                System.out.println(w.word +
-                        " | total: " + w.totalCount +
-                        " | starts: " + w.startCount +
-                        " | ends: " + w.endCount);
-            }
-        } catch (SQLException e) {
-            System.out.println("Error fetching report: " + e.getMessage());
+        reporter.setSortType(sort);
+        List<Word> words = reporter.getSortedWords();
+        for (Word w : words) {
+            System.out.println(w.word +
+                    " | total: " + w.totalCount +
+                    " | starts: " + w.startCount +
+                    " | ends: " + w.endCount);
         }
     }
 
-    private void runGeneration(Scanner scanner) {
-        System.out.print("Enter a starting word: ");
+    public List<String> runGeneration(String og_sentence) {
+        Scanner scanner = new Scanner(og_sentence);
         String rawInput = scanner.nextLine().trim().toLowerCase();
 
         String[] inputWords = rawInput.split("\\s+");
         if (inputWords.length == 0 || inputWords[0].isEmpty()) {
             System.out.println("Invalid input.");
-            return;
+            scanner.close();
+            return null;
         }
         String currentWord = inputWords[0];
 
@@ -261,11 +247,13 @@ public class SentenceBuilder {
             sentence.set(0, firstWord.substring(0, 1).toUpperCase() + firstWord.substring(1));
         }
 
-        System.out.println("Generated: " + String.join(" ", sentence) + ".");
+        scanner.close();
+        return sentence;
     }
 
     // Helper method for selecting the next word based on randomness settings
-    private String pickNextWord(List<String> options) {
+    /* Made public so it can be accessed in ui */
+    public String pickNextWord(List<String> options) {
         if (options == null || options.isEmpty())
             return null;
         int bound = Math.min(options.size(), randomnessPool);
