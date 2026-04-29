@@ -34,6 +34,7 @@ public class SentenceBuilderApp extends Application {
     private Button btnGenerate;
     private Button btnAutoComplete;
     private Button btnReports;
+    private Button btnEdit;
     private Button btnLogs;
     private String lastRememberedAutocompleteInput = "";
     private String lastLoggedAutocompleteInput = "";
@@ -99,6 +100,7 @@ public class SentenceBuilderApp extends Application {
         btnGenerate = navButton("Generate");
         btnAutoComplete = navButton("Auto-complete");
         btnReports = navButton("Reports");
+        btnEdit = navButton("Edit");
         btnLogs = navButton("Logs");
 
         btnDashboard.setOnAction(e -> showDashboard());
@@ -106,12 +108,13 @@ public class SentenceBuilderApp extends Application {
         btnGenerate.setOnAction(e -> showGenerate());
         btnAutoComplete.setOnAction(e -> showAutoComplete());
         btnReports.setOnAction(e -> showReports());
+        btnEdit.setOnAction(e -> showEdit());
         btnLogs.setOnAction(e -> showLogs());
 
         sb.getChildren().addAll(
                 title, new Separator(),
                 btnDashboard, btnImport, btnGenerate,
-                btnAutoComplete, btnReports, btnLogs);
+                btnAutoComplete, btnReports, btnEdit, btnLogs);
         return sb;
     }
 
@@ -154,7 +157,7 @@ public class SentenceBuilderApp extends Application {
     private void setActive(Button active)
     {
         for (Button b : new Button[]{btnDashboard, btnImport, btnGenerate,
-                                      btnAutoComplete, btnReports, btnLogs})
+                                      btnAutoComplete, btnReports, btnEdit, btnLogs})
             b.setStyle(navStyle(false));
         active.setStyle(navStyleActive());
     }
@@ -564,7 +567,7 @@ public class SentenceBuilderApp extends Application {
         heading.setStyle("-fx-font-size: 20px; -fx-font-weight: bold;");
 
         Label instructions = new Label(
-                "Type your sentence. Suggestions appear each time you press Space.");
+                "Type your sentence. Suggestions appear each time you press Space or comma.");
         instructions.setStyle("-fx-font-size: 13px; -fx-text-fill: #666666;");
         instructions.setWrapText(true);
 
@@ -628,7 +631,9 @@ public class SentenceBuilderApp extends Application {
                     chipsBox.getChildren().clear();
                 }
 
-                if (event.getCode() != KeyCode.SPACE) return;
+                boolean triggerOnSpace = event.getCode() == KeyCode.SPACE;
+                boolean triggerOnComma = ",".equals(event.getText());
+                if (!triggerOnSpace && !triggerOnComma) return;
 
                 List<String> suggestions = sentenceBuilder.getSuggestionsForInput(text);
 
@@ -845,6 +850,130 @@ public class SentenceBuilderApp extends Application {
         loadData.run();
     }
 
+    private void showEdit() {
+        setActive(btnEdit);
+        // View-level event for user workflow auditing in the Logs tab.
+        logEvent("VIEW_EDIT", "Opened edit tab");
+
+        VBox page = new VBox(12);
+        page.setPadding(new Insets(25));
+
+        Label heading = new Label("Edit Word Frequencies");
+        heading.setStyle("-fx-font-size: 20px; -fx-font-weight: bold;");
+        Label note = new Label("Update counts while preserving effective total (total + boost total).");
+        note.setStyle("-fx-font-size: 13px; -fx-text-fill: #666666;");
+        note.setWrapText(true);
+
+        TextField wordField = new TextField();
+        wordField.setPromptText("Enter word to edit");
+        wordField.setMaxWidth(260);
+        Button lookupBtn = new Button("Lookup");
+        HBox lookupRow = new HBox(10, wordField, lookupBtn);
+        lookupRow.setAlignment(Pos.CENTER_LEFT);
+
+        TextField totalField = new TextField();
+        TextField startField = new TextField();
+        TextField endField = new TextField();
+        TextField boostTotalField = new TextField();
+        TextField boostStartField = new TextField();
+        TextField effectiveField = new TextField();
+        boostTotalField.setEditable(false);
+        effectiveField.setEditable(false);
+
+        GridPane grid = new GridPane();
+        grid.setHgap(10);
+        grid.setVgap(8);
+        grid.addRow(0, new Label("Total count"), totalField);
+        grid.addRow(1, new Label("Start count"), startField);
+        grid.addRow(2, new Label("End count"), endField);
+        grid.addRow(3, new Label("Boost total"), boostTotalField);
+        grid.addRow(4, new Label("Boost starts"), boostStartField);
+        grid.addRow(5, new Label("Effective total"), effectiveField);
+
+        Button saveBtn = new Button("Save");
+        saveBtn.setDisable(true);
+        Label statusLabel = new Label("");
+        statusLabel.setStyle("-fx-font-size: 13px; -fx-text-fill: #888888;");
+        HBox actionRow = new HBox(10, saveBtn, statusLabel);
+        actionRow.setAlignment(Pos.CENTER_LEFT);
+
+        page.getChildren().addAll(heading, note, lookupRow, grid, actionRow);
+        contentArea.getChildren().setAll(page);
+
+        final String[] selectedWord = {null};
+
+        Runnable clearFields = () -> {
+            totalField.clear();
+            startField.clear();
+            endField.clear();
+            boostTotalField.clear();
+            boostStartField.clear();
+            effectiveField.clear();
+        };
+
+        lookupBtn.setOnAction(e -> {
+            String word = wordField.getText().trim().toLowerCase();
+            if (word.isEmpty()) {
+                statusLabel.setText("Enter a word to lookup.");
+                saveBtn.setDisable(true);
+                clearFields.run();
+                return;
+            }
+            try {
+                Word row = dbMan.getWordByText(word);
+                if (row == null) {
+                    statusLabel.setText("Word not found.");
+                    saveBtn.setDisable(true);
+                    selectedWord[0] = null;
+                    clearFields.run();
+                    return;
+                }
+                selectedWord[0] = row.word;
+                totalField.setText(String.valueOf(row.totalCount));
+                startField.setText(String.valueOf(row.startCount));
+                endField.setText(String.valueOf(row.endCount));
+                boostTotalField.setText(String.valueOf(row.boostTotalCount));
+                boostStartField.setText(String.valueOf(row.boostStartCount));
+                effectiveField.setText(String.valueOf(row.effectiveTotalCount));
+                statusLabel.setText("Loaded: " + row.word);
+                saveBtn.setDisable(false);
+                // Logged to preserve a trace of manual data-access actions.
+                logEvent("EDIT_LOOKUP", row.word);
+            } catch (SQLException ex) {
+                statusLabel.setText("Lookup failed: " + ex.getMessage());
+                saveBtn.setDisable(true);
+            }
+        });
+
+        saveBtn.setOnAction(e -> {
+            if (selectedWord[0] == null) return;
+            try {
+                int total = Integer.parseInt(totalField.getText().trim());
+                int start = Integer.parseInt(startField.getText().trim());
+                int end = Integer.parseInt(endField.getText().trim());
+                int boostStart = Integer.parseInt(boostStartField.getText().trim());
+
+                dbMan.updateWordCountsPreserveEffective(selectedWord[0], total, start, end, boostStart);
+                Word updated = dbMan.getWordByText(selectedWord[0]);
+                boostTotalField.setText(String.valueOf(updated.boostTotalCount));
+                effectiveField.setText(String.valueOf(updated.effectiveTotalCount));
+                statusLabel.setText("Saved.");
+                modelLoaded = false; // reload in-memory model on next generate/autocomplete usage
+                logEvent("EDIT_SAVE",
+                        selectedWord[0] + " total=" + updated.totalCount + " start=" + updated.startCount +
+                                " end=" + updated.endCount + " boostStart=" + updated.boostStartCount);
+            } catch (NumberFormatException ex) {
+                statusLabel.setText("Enter valid integer values.");
+            } catch (SQLException ex) {
+                statusLabel.setText("Save failed: " + ex.getMessage());
+            }
+        });
+
+        wordField.setOnKeyPressed(e -> {
+            if (e.getCode() == KeyCode.ENTER) lookupBtn.fire();
+        });
+    }
+
     private void showLogs() {
         setActive(btnLogs);
 
@@ -1009,7 +1138,7 @@ public class SentenceBuilderApp extends Application {
     {
         List<FileRow> rows = new ArrayList<>();
         for (ImportedFile f : files)
-            rows.add(new FileRow(truncateNames ? truncateTail(f.fileName, 50) : f.fileName,
+            rows.add(new FileRow(truncateNames ? truncateTail(f.fileName, 25) : f.fileName,
                     String.format("%,d", f.wordCount), f.importDate));
         return rows;
     }
@@ -1087,6 +1216,7 @@ public class SentenceBuilderApp extends Application {
     }
 
     private void logEvent(String activityType, String content) {
+        // Thin UI wrapper around DB logging so every tab can emit consistent audit events.
         try {
             dbMan.logUserActivity(activityType, content);
         } catch (SQLException ignored) {

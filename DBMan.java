@@ -300,6 +300,7 @@ public class DBMan {
     }
 
     public void logUserActivity(String activityType, String content) throws SQLException {
+        // Centralized append-only audit trail used by Generate history, Logs tab, and export/report diagnostics.
         String sql = "INSERT INTO UserHistory (activity_type, content) VALUES (?, ?)";
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, activityType);
@@ -343,6 +344,54 @@ public class DBMan {
             }
         }
         return types;
+    }
+
+    public Word getWordByText(String word) throws SQLException {
+        String sql = "SELECT word, total_count, start_count, end_count, boost_total_count, boost_start_count, " +
+                "(total_count + boost_total_count) AS effective_total_count " +
+                "FROM WordCorpus WHERE word = ?";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, word);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) return null;
+                Word w = new Word();
+                w.word = rs.getString("word");
+                w.totalCount = rs.getInt("total_count");
+                w.startCount = rs.getInt("start_count");
+                w.endCount = rs.getInt("end_count");
+                w.boostTotalCount = rs.getInt("boost_total_count");
+                w.boostStartCount = rs.getInt("boost_start_count");
+                w.effectiveTotalCount = rs.getInt("effective_total_count");
+                return w;
+            }
+        }
+    }
+
+    public void updateWordCountsPreserveEffective(String word, int totalCount, int startCount, int endCount, int boostStartCount)
+            throws SQLException {
+        Word existing = getWordByText(word);
+        if (existing == null) {
+            throw new SQLException("Word not found: " + word);
+        }
+
+        int effectiveTotal = existing.effectiveTotalCount;
+        int adjustedBoostTotal = Math.max(0, effectiveTotal - Math.max(0, totalCount));
+        int clampedStart = Math.max(0, Math.min(startCount, Math.max(0, totalCount)));
+        int clampedEnd = Math.max(0, Math.min(endCount, Math.max(0, totalCount)));
+        int clampedBoostStart = Math.max(0, Math.min(boostStartCount, adjustedBoostTotal));
+
+        String sql = "UPDATE WordCorpus SET total_count = ?, start_count = ?, end_count = ?, " +
+                "boost_total_count = ?, boost_start_count = ? WHERE word = ?";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, Math.max(0, totalCount));
+            ps.setInt(2, clampedStart);
+            ps.setInt(3, clampedEnd);
+            ps.setInt(4, adjustedBoostTotal);
+            ps.setInt(5, clampedBoostStart);
+            ps.setString(6, word);
+            ps.executeUpdate();
+            conn.commit();
+        }
     }
 
     public void insertLearnedData(String[] words, double strengthMultiplier) {
