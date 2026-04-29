@@ -8,7 +8,9 @@ CREATE TABLE WordCorpus (
     word VARCHAR(100) PRIMARY KEY,
     total_count INT DEFAULT 1,
     start_count INT DEFAULT 0,
-    end_count INT DEFAULT 0
+    end_count INT DEFAULT 0,
+    boost_total_count INT DEFAULT 0,
+    boost_start_count INT DEFAULT 0
 );
 
 -- Table for Frequency-based next word (Bigrams: Word A -> Word B)
@@ -16,6 +18,7 @@ CREATE TABLE Bigrams (
     word1 VARCHAR(100),
     word2 VARCHAR(100),
     frequency INT DEFAULT 1,
+    boost_frequency INT DEFAULT 0,
     PRIMARY KEY (word1, word2),
     FOREIGN KEY (word1) REFERENCES WordCorpus(word)
 );
@@ -26,6 +29,7 @@ CREATE TABLE Trigrams (
     word2 VARCHAR(100),
     word3 VARCHAR(100),
     frequency INT DEFAULT 1,
+    boost_frequency INT DEFAULT 0,
     PRIMARY KEY (word1, word2, word3)
 );
 
@@ -38,7 +42,7 @@ CREATE TABLE ImportedFiles (
 
 -- Table to track generated sentences
 CREATE TABLE IF NOT EXISTS UserHistory (
-    id INT AUTO_INCREMENT PRIMARY KEY,
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
     activity_type VARCHAR(50), 
     content TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP

@@ -45,7 +45,9 @@ public class CorpusParser {
         for (File file : files)
         {
             if (cancelRequested) break;
-            if (alreadyImported.contains(file.getName()))
+            String dedupKey = getDedupKey(file);
+            // Backward compatibility: older rows may have stored only file.getName().
+            if (alreadyImported.contains(dedupKey) || alreadyImported.contains(file.getName()))
             {
                 reportProgress("Skipping (already imported): " + file.getName());
                 continue;
@@ -66,7 +68,11 @@ public class CorpusParser {
             Files.list(rootData)
                     .filter(Files::isRegularFile)
                     .filter(p -> p.toString().endsWith(".txt"))
-                    .filter(p -> !alreadyImported.contains(p.toFile().getName()))
+                    .filter(p -> {
+                        File f = p.toFile();
+                        String dedupKey = getDedupKey(f);
+                        return !alreadyImported.contains(dedupKey) && !alreadyImported.contains(f.getName());
+                    })
                     .forEach(path -> {
                         if (!cancelRequested)
                             processFile(path.toFile(), false);
@@ -79,7 +85,11 @@ public class CorpusParser {
                 Files.list(gutenbergData)
                         .filter(Files::isRegularFile)
                         .filter(p -> p.toString().endsWith(".txt"))
-                        .filter(p -> !alreadyImported.contains(p.toFile().getName()))
+                        .filter(p -> {
+                            File f = p.toFile();
+                            String dedupKey = getDedupKey(f);
+                            return !alreadyImported.contains(dedupKey) && !alreadyImported.contains(f.getName());
+                        })
                         .forEach(path -> {
                             if (!cancelRequested)
                                 processFile(path.toFile(), true);
@@ -93,7 +103,11 @@ public class CorpusParser {
                 Files.list(cocaData)
                         .filter(Files::isRegularFile)
                         .filter(p -> p.toString().endsWith(".txt"))
-                        .filter(p -> !alreadyImported.contains(p.toFile().getName()))
+                        .filter(p -> {
+                            File f = p.toFile();
+                            String dedupKey = getDedupKey(f);
+                            return !alreadyImported.contains(dedupKey) && !alreadyImported.contains(f.getName());
+                        })
                         .forEach(path -> {
                             if (!cancelRequested)
                                 processFile(path.toFile(), false);
@@ -238,7 +252,7 @@ public class CorpusParser {
 
             if (!cancelRequested) {
                 ImportedFile importedFile = new ImportedFile();
-                importedFile.fileName = file.getName();
+                importedFile.fileName = getDedupKey(file);
                 importedFile.wordCount = wordCount;
                 dbMan.logImport(importedFile);
                 reportProgress("Done: " + file.getName() + " (" + String.format("%,d", wordCount) + "words)");
@@ -256,6 +270,14 @@ public class CorpusParser {
             catch (SQLException ex) {
                 ex.printStackTrace();
             }
+        }
+    }
+
+    private String getDedupKey(File file) {
+        try {
+            return file.getCanonicalPath();
+        } catch (IOException e) {
+            return file.getAbsolutePath();
         }
     }
 }

@@ -31,6 +31,8 @@ public class SentenceBuilderApp extends Application {
     private Button btnGenerate;
     private Button btnAutoComplete;
     private Button btnReports;
+    private String lastRememberedAutocompleteInput = "";
+    private String lastLoggedAutocompleteInput = "";
 
     @Override
     public void start(Stage stage) {
@@ -422,6 +424,22 @@ public class SentenceBuilderApp extends Application {
         HBox sliderRow = new HBox(10, randomSlider, randomValue);
         sliderRow.setAlignment(Pos.CENTER_LEFT);
 
+        Label lengthLabel = new Label("Generation length (words added)");
+        lengthLabel.setStyle("-fx-font-size: 13px; -fx-text-fill: #666666;");
+        Spinner<Integer> lengthSpinner = new Spinner<>(1, 50, 15);
+        lengthSpinner.setEditable(true);
+        lengthSpinner.setMaxWidth(120);
+
+        CheckBox rememberInputBox = new CheckBox("Remember New Input");
+        rememberInputBox.setSelected(true);
+
+        Label learningLabel = new Label("Learning strength");
+        learningLabel.setStyle("-fx-font-size: 13px; -fx-text-fill: #666666;");
+        ComboBox<String> learningBox = new ComboBox<>();
+        learningBox.getItems().addAll("Gentle", "Balanced", "Strong");
+        learningBox.setValue("Balanced");
+        learningBox.setMaxWidth(140);
+
         // Generate button
         Button generateBtn = new Button("Generate");
         generateBtn.setStyle("-fx-background-color: #2E5090; -fx-text-fill: white; -fx-padding: 7 16 7 16;");
@@ -453,6 +471,9 @@ public class SentenceBuilderApp extends Application {
                 heading,
                 startLabel, startField,
                 randomLabel, sliderRow,
+                lengthLabel, lengthSpinner,
+                rememberInputBox,
+                learningLabel, learningBox,
                 generateBtn, statusLabel, resultBox,
                 histLabel, histList);
 
@@ -467,6 +488,9 @@ public class SentenceBuilderApp extends Application {
 
             int pool = (int) randomSlider.getValue();
             sentenceBuilder.randomnessPool = pool;
+            int generationLength = lengthSpinner.getValue();
+            boolean rememberNewInput = rememberInputBox.isSelected();
+            SentenceBuilder.LearningStrength learningStrength = mapLearningStrength(learningBox.getValue());
 
             generateBtn.setDisable(true);
             statusLabel.setText("Generating...");
@@ -475,11 +499,24 @@ public class SentenceBuilderApp extends Application {
             ensureModelLoaded(() -> {
                 // Run generation on a background thread so UI stays responsive
                 Thread genThread = new Thread(() -> {
-                    String sentence = String.join(" ", sentenceBuilder.runGeneration(startWord));
+                    List<String> generatedWords = sentenceBuilder.runGeneration(
+                            startWord, generationLength, rememberNewInput, learningStrength);
+                    if (generatedWords == null || generatedWords.isEmpty()) {
+                        Platform.runLater(() -> {
+                            statusLabel.setText("Could not generate a sentence.");
+                            generateBtn.setDisable(false);
+                        });
+                        return;
+                    }
+                    String sentence = String.join(" ", generatedWords);
+                    if (!sentence.matches(".*[.!?]$")) {
+                        sentence = sentence + ".";
+                    }
+                    final String sentenceToShow = sentence;
                     Platform.runLater(() -> {
-                        resultLabel.setText(sentence);
+                        resultLabel.setText(sentenceToShow);
                         resultBox.setVisible(true);
-                        histList.getItems().add(0, sentence);
+                        histList.getItems().add(0, sentenceToShow);
                         statusLabel.setText("");
                         generateBtn.setDisable(false);
                     });
@@ -510,6 +547,16 @@ public class SentenceBuilderApp extends Application {
         instructions.setStyle("-fx-font-size: 13px; -fx-text-fill: #666666;");
         instructions.setWrapText(true);
 
+        CheckBox rememberInputBox = new CheckBox("Remember New Input");
+        rememberInputBox.setSelected(true);
+
+        Label learningLabel = new Label("Learning strength");
+        learningLabel.setStyle("-fx-font-size: 13px; -fx-text-fill: #666666;");
+        ComboBox<String> learningBox = new ComboBox<>();
+        learningBox.getItems().addAll("Gentle", "Balanced", "Strong");
+        learningBox.setValue("Balanced");
+        learningBox.setMaxWidth(140);
+
         // Main text input
         TextArea inputArea = new TextArea();
         inputArea.setPromptText("Start typing...");
@@ -527,7 +574,9 @@ public class SentenceBuilderApp extends Application {
         Label statusLabel = new Label("");
         statusLabel.setStyle("-fx-font-size: 13px; -fx-text-fill: #888888;");
 
-        page.getChildren().addAll(heading, instructions, inputArea, suggestLabel, chipsBox, statusLabel);
+        page.getChildren().addAll(
+                heading, instructions, rememberInputBox, learningLabel, learningBox,
+                inputArea, suggestLabel, chipsBox, statusLabel);
         contentArea.getChildren().setAll(page);
 
         // Load model then attach the space listener
@@ -535,35 +584,32 @@ public class SentenceBuilderApp extends Application {
             statusLabel.setText("");
 
             inputArea.setOnKeyReleased(event -> {
-                if (event.getCode() != KeyCode.SPACE) return;
-
                 String text = inputArea.getText();
                 if (text.isBlank()) {
                     chipsBox.getChildren().clear();
                     return;
                 }
 
-                // Get all words typed so far (trim trailing space)
-                String[] words = text.trim().split("\\s+");
-                if (words.length == 0) return;
-
-                List<String> suggestions = new ArrayList<>();
-
-                // Try trigram first (needs at least 2 words)
-                if (words.length >= 2) {
-                    String key = words[words.length - 2] + " " + words[words.length - 1];
-                    suggestions = sentenceBuilder.trigramMap.getOrDefault(key, new ArrayList<>());
+                if (text.matches("(?s).*[.!?]\\s*$")) {
+                    String finalInput = text.trim().toLowerCase();
+                    if (rememberInputBox.isSelected() && !finalInput.isEmpty() && !finalInput.equals(lastRememberedAutocompleteInput)) {
+                        sentenceBuilder.rememberUserInput(finalInput, mapLearningStrength(learningBox.getValue()));
+                        lastRememberedAutocompleteInput = finalInput;
+                    }
+                    if (!finalInput.isEmpty() && !finalInput.equals(lastLoggedAutocompleteInput)) {
+                        try {
+                            dbMan.logUserActivity("AUTOCOMPLETE", finalInput);
+                            lastLoggedAutocompleteInput = finalInput;
+                        } catch (SQLException ignored) {
+                        }
+                    }
+                    // Terminal punctuation starts a new sentence context for the next query.
+                    chipsBox.getChildren().clear();
                 }
 
-                // Fall back to bigram
-                if (suggestions.isEmpty()) {
-                    String key = words[words.length - 1];
-                    suggestions = sentenceBuilder.bigramMap.getOrDefault(key, new ArrayList<>());
-                }
+                if (event.getCode() != KeyCode.SPACE) return;
 
-                // Fall back to sentence starters if still nothing
-                if (suggestions.isEmpty())
-                    suggestions = sentenceBuilder.sentenceStarters;
+                List<String> suggestions = sentenceBuilder.getSuggestionsForInput(text);
 
                 // Show up to 5 suggestions
                 List<String> top = suggestions.subList(0, Math.min(5, suggestions.size()));
@@ -594,15 +640,7 @@ public class SentenceBuilderApp extends Application {
 
                         // Immediately re-suggest for the word just inserted
                         String[] updated = inputArea.getText().trim().split("\\s+");
-                        List<String> next = new ArrayList<>();
-                        if (updated.length >= 2) {
-                            String key = updated[updated.length - 2] + " " + updated[updated.length - 1];
-                            next = sentenceBuilder.trigramMap.getOrDefault(key, new ArrayList<>());
-                        }
-                        if (next.isEmpty() && updated.length >= 1) {
-                            next = sentenceBuilder.bigramMap.getOrDefault(
-                                    updated[updated.length - 1], new ArrayList<>());
-                        }
+                        List<String> next = sentenceBuilder.getSuggestionsForInput(String.join(" ", updated));
                         if (!next.isEmpty()) {
                             List<String> nextTop = next.subList(0, Math.min(5, next.size()));
                             for (String s : nextTop) {
@@ -665,17 +703,27 @@ public class SentenceBuilderApp extends Application {
 
         TableColumn<WordRow, String> colWord = new TableColumn<>("Word");
         TableColumn<WordRow, String> colTotal = new TableColumn<>("Frequency");
+        TableColumn<WordRow, String> colStart = new TableColumn<>("Starts");
+        TableColumn<WordRow, String> colEnd = new TableColumn<>("Ends");
 
         colWord.setCellValueFactory(d ->
                 new javafx.beans.property.SimpleStringProperty(d.getValue().word));
         colTotal.setCellValueFactory(d ->
                 new javafx.beans.property.SimpleStringProperty(d.getValue().total));
+        colStart.setCellValueFactory(d ->
+                new javafx.beans.property.SimpleStringProperty(d.getValue().starts));
+        colEnd.setCellValueFactory(d ->
+                new javafx.beans.property.SimpleStringProperty(d.getValue().ends));
 
         colWord.setPrefWidth(220);
         colTotal.setPrefWidth(120);
+        colStart.setPrefWidth(100);
+        colEnd.setPrefWidth(100);
 
         table.getColumns().add(colWord);
         table.getColumns().add(colTotal);
+        table.getColumns().add(colStart);
+        table.getColumns().add(colEnd);
         page.getChildren().addAll(heading, sortRow, statusLabel, table);
         contentArea.getChildren().setAll(page);
 
@@ -698,7 +746,9 @@ public class SentenceBuilderApp extends Application {
                 for (Word w : words) 
                     rows.add(new WordRow(
                                 w.word, 
-                                String.format("%,d", w.totalCount)));
+                                String.format("%,d", w.totalCount),
+                                String.format("%,d", w.startCount),
+                                String.format("%,d", w.endCount)));
 
                 Platform.runLater(() -> {
                     table.getItems().setAll(rows);
@@ -798,6 +848,15 @@ public class SentenceBuilderApp extends Application {
         return l;
     }
 
+    private SentenceBuilder.LearningStrength mapLearningStrength(String uiValue) {
+        if (uiValue == null) return SentenceBuilder.LearningStrength.BALANCED;
+        return switch (uiValue) {
+            case "Gentle" -> SentenceBuilder.LearningStrength.GENTLE;
+            case "Strong" -> SentenceBuilder.LearningStrength.STRONG;
+            default -> SentenceBuilder.LearningStrength.BALANCED;
+        };
+    }
+
     public static class FileRow 
     {
         String name, words, date;
@@ -808,9 +867,10 @@ public class SentenceBuilderApp extends Application {
 
     public static class WordRow 
     {
-        String word, total;
-        WordRow(String word, String total) {
+        String word, total, starts, ends;
+        WordRow(String word, String total, String starts, String ends) {
             this.word = word; this.total = total;
+            this.starts = starts; this.ends = ends;
         }
     }
 
