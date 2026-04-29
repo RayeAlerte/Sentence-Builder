@@ -15,7 +15,7 @@ public class AutocompleteLogicTest {
     @BeforeEach
     void setUp() throws SQLException {
         mockDB = new MockDBMan();
-        builder = new SentenceBuilder(mockDB);
+        builder = new SentenceBuilder(mockDB, new Reporter(mockDB));
     }
 
     // ─── A1: Trigram fallback to Bigram ───────────────────────────────────────

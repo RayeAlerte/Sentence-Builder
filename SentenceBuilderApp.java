@@ -34,6 +34,7 @@ public class SentenceBuilderApp extends Application {
     private Button btnGenerate;
     private Button btnAutoComplete;
     private Button btnReports;
+    private Button btnLogs;
     private String lastRememberedAutocompleteInput = "";
     private String lastLoggedAutocompleteInput = "";
 
@@ -45,6 +46,7 @@ public class SentenceBuilderApp extends Application {
         try 
         {
             dbMan.connect();
+            logEvent("APP_START", "SentenceBuilderApp started");
         } 
         catch (SQLException e) 
         {
@@ -97,17 +99,19 @@ public class SentenceBuilderApp extends Application {
         btnGenerate = navButton("Generate");
         btnAutoComplete = navButton("Auto-complete");
         btnReports = navButton("Reports");
+        btnLogs = navButton("Logs");
 
         btnDashboard.setOnAction(e -> showDashboard());
         btnImport.setOnAction(e -> showImport());
         btnGenerate.setOnAction(e -> showGenerate());
         btnAutoComplete.setOnAction(e -> showAutoComplete());
         btnReports.setOnAction(e -> showReports());
+        btnLogs.setOnAction(e -> showLogs());
 
         sb.getChildren().addAll(
                 title, new Separator(),
                 btnDashboard, btnImport, btnGenerate,
-                btnAutoComplete, btnReports);
+                btnAutoComplete, btnReports, btnLogs);
         return sb;
     }
 
@@ -150,7 +154,7 @@ public class SentenceBuilderApp extends Application {
     private void setActive(Button active)
     {
         for (Button b : new Button[]{btnDashboard, btnImport, btnGenerate,
-                                      btnAutoComplete, btnReports})
+                                      btnAutoComplete, btnReports, btnLogs})
             b.setStyle(navStyle(false));
         active.setStyle(navStyleActive());
     }
@@ -166,13 +170,16 @@ public class SentenceBuilderApp extends Application {
 
         if (statusLabel != null)
             statusLabel.setText("Loading model into memory...");
+        logEvent("MODEL_LOAD_START", "Loading n-gram model into memory");
 
         Thread loader = new Thread(() -> {
             try {
                 sentenceBuilder.loadDatabaseIntoMemory();
                 modelLoaded = true;
+                logEvent("MODEL_LOAD_DONE", "Model load complete");
                 Platform.runLater(onReady);
             } catch (SQLException e) {
+                logEvent("MODEL_LOAD_ERROR", e.getMessage());
                 Platform.runLater(() -> {
                     if (statusLabel != null)
                         statusLabel.setText("Error loading model: " + e.getMessage());
@@ -187,6 +194,7 @@ public class SentenceBuilderApp extends Application {
     private void showDashboard() 
     {
         setActive(btnDashboard);
+        logEvent("VIEW_DASHBOARD", "Opened dashboard");
 
         VBox page = new VBox(20);
         page.setPadding(new Insets(25));
@@ -216,7 +224,7 @@ public class SentenceBuilderApp extends Application {
                 long tw = dbMan.getTotalWords();
                 long uw = dbMan.getUniqueWords();
                 long fc = dbMan.numImportedFiles();
-                List<FileRow> rows = toFileRows(dbMan.getImportedFiles(10));
+                List<FileRow> rows = toFileRows(dbMan.getImportedFiles(10), true);
                 Platform.runLater(() -> {
                     totalWordsLabel.setText(String.format("%,d", tw));
                     uniqueWordsLabel.setText(String.format("%,d", uw));
@@ -332,6 +340,7 @@ public class SentenceBuilderApp extends Application {
             }
 
             List<File> filesToParse = new ArrayList<>(selectedFiles);
+            logEvent("IMPORT_START", "Queued files: " + filesToParse.size());
             parseBtn.setDisable(true);
             browseBtn.setDisable(true);
             removeBtn.setDisable(true);
@@ -350,6 +359,8 @@ public class SentenceBuilderApp extends Application {
                     Platform.runLater(() -> {
                         statusLabel.setText(CorpusParser.cancelRequested
                                 ? "Import cancelled." : "Import complete!");
+                        logEvent(CorpusParser.cancelRequested ? "IMPORT_CANCELLED" : "IMPORT_DONE",
+                                CorpusParser.cancelRequested ? "User cancelled import" : "Import completed");
                         selectedFiles.clear();
                         pendingList.getItems().clear();
                         selectedLabel.setText("No files selected.");
@@ -360,6 +371,7 @@ public class SentenceBuilderApp extends Application {
                         loadImportHistory(historyTable);
                     });
                 } catch (Exception ex) {
+                    logEvent("IMPORT_ERROR", ex.getMessage());
                     Platform.runLater(() -> {
                         statusLabel.setText("Error: " + ex.getMessage());
                         parseBtn.setDisable(false);
@@ -374,6 +386,7 @@ public class SentenceBuilderApp extends Application {
 
         cancelBtn.setOnAction(e -> {
             CorpusParser.cancelRequested = true;
+            logEvent("IMPORT_CANCEL_REQUEST", "Cancellation requested");
             cancelBtn.setDisable(true);
             statusLabel.setText("Cancelling — finishing current batch...");
         });
@@ -398,6 +411,7 @@ public class SentenceBuilderApp extends Application {
     private void showGenerate() 
     {
         setActive(btnGenerate);
+        logEvent("VIEW_GENERATE", "Opened generate tab");
 
         VBox page = new VBox(15);
         page.setPadding(new Insets(25));
@@ -464,7 +478,7 @@ public class SentenceBuilderApp extends Application {
         resultBox.setVisible(false);
 
         // History of generated sentences
-        Label histLabel = new Label("Generated sentences this session");
+        Label histLabel = new Label("Generated sentence history");
         histLabel.setStyle("-fx-font-size: 13px; -fx-text-fill: #666666;");
         ListView<String> histList = new ListView<>();
         histList.setPrefHeight(160);
@@ -481,6 +495,7 @@ public class SentenceBuilderApp extends Application {
                 histLabel, histList);
 
         contentArea.getChildren().setAll(page);
+        loadGenerationHistory(histList, statusLabel);
 
         generateBtn.setOnAction(e -> {
             String startWord = startField.getText().trim().toLowerCase();
@@ -494,6 +509,8 @@ public class SentenceBuilderApp extends Application {
             int generationLength = lengthSpinner.getValue();
             boolean rememberNewInput = rememberInputBox.isSelected();
             SentenceBuilder.LearningStrength learningStrength = mapLearningStrength(learningBox.getValue());
+            logEvent("GENERATE_REQUEST",
+                    "start=" + startWord + ", len=" + generationLength + ", remember=" + rememberNewInput);
 
             generateBtn.setDisable(true);
             statusLabel.setText("Generating...");
@@ -520,6 +537,7 @@ public class SentenceBuilderApp extends Application {
                         resultLabel.setText(sentenceToShow);
                         resultBox.setVisible(true);
                         histList.getItems().add(0, sentenceToShow);
+                        logEvent("GENERATE_RESULT", sentenceToShow);
                         statusLabel.setText("");
                         generateBtn.setDisable(false);
                     });
@@ -817,12 +835,115 @@ public class SentenceBuilderApp extends Application {
 
             try {
                 exportWordRowsToCsv(file, table.getItems());
+                logEvent("REPORT_EXPORT", "rows=" + table.getItems().size() + ", file=" + file.getAbsolutePath());
                 statusLabel.setText("Exported " + table.getItems().size() + " rows to " + file.getName());
             } catch (IOException ex) {
+                logEvent("REPORT_EXPORT_ERROR", ex.getMessage());
                 statusLabel.setText("Export failed: " + ex.getMessage());
             }
         });
         loadData.run();
+    }
+
+    private void showLogs() {
+        setActive(btnLogs);
+
+        VBox page = new VBox(15);
+        page.setPadding(new Insets(25));
+
+        Label heading = new Label("Application Logs");
+        heading.setStyle("-fx-font-size: 20px; -fx-font-weight: bold;");
+
+        Label filterLabel = new Label("Activity type:");
+        filterLabel.setStyle("-fx-font-size: 13px; -fx-text-fill: #666666;");
+        ComboBox<String> typeBox = new ComboBox<>();
+        typeBox.getItems().add("ALL");
+        typeBox.setValue("ALL");
+        typeBox.setStyle("-fx-font-size: 13px;");
+
+        Button refreshBtn = new Button("Refresh");
+        refreshBtn.setStyle("-fx-padding: 6 12 6 12;");
+
+        HBox controls = new HBox(10, filterLabel, typeBox, refreshBtn);
+        controls.setAlignment(Pos.CENTER_LEFT);
+
+        Label statusLabel = new Label("Loading...");
+        statusLabel.setStyle("-fx-font-size: 13px; -fx-text-fill: #888888;");
+
+        TableView<LogRow> table = new TableView<>();
+        table.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
+        VBox.setVgrow(table, Priority.ALWAYS);
+        table.setPlaceholder(new Label("No logs found."));
+
+        TableColumn<LogRow, String> colTime = new TableColumn<>("Timestamp");
+        TableColumn<LogRow, String> colType = new TableColumn<>("Type");
+        TableColumn<LogRow, String> colContent = new TableColumn<>("Content");
+        colTime.setCellValueFactory(d -> new javafx.beans.property.SimpleStringProperty(d.getValue().time));
+        colType.setCellValueFactory(d -> new javafx.beans.property.SimpleStringProperty(d.getValue().type));
+        colContent.setCellValueFactory(d -> new javafx.beans.property.SimpleStringProperty(d.getValue().content));
+        colTime.setPrefWidth(170);
+        colType.setPrefWidth(150);
+        colContent.setPrefWidth(500);
+        table.getColumns().add(colTime);
+        table.getColumns().add(colType);
+        table.getColumns().add(colContent);
+
+        page.getChildren().addAll(heading, controls, statusLabel, table);
+        contentArea.getChildren().setAll(page);
+
+        Runnable loadTypes = () -> {
+            Thread t = new Thread(() -> {
+                try {
+                    List<String> types = dbMan.getUserHistoryActivityTypes();
+                    Platform.runLater(() -> {
+                        String current = typeBox.getValue();
+                        typeBox.getItems().setAll("ALL");
+                        typeBox.getItems().addAll(types);
+                        if (current != null && typeBox.getItems().contains(current)) {
+                            typeBox.setValue(current);
+                        } else {
+                            typeBox.setValue("ALL");
+                        }
+                    });
+                } catch (SQLException ignored) {
+                }
+            });
+            t.setDaemon(true);
+            t.start();
+        };
+
+        Runnable loadLogs = () -> {
+            statusLabel.setText("Loading...");
+            table.getItems().clear();
+            Thread t = new Thread(() -> {
+                try {
+                    String selected = typeBox.getValue();
+                    String filter = (selected == null || "ALL".equals(selected)) ? null : selected;
+                    List<DBMan.UserHistoryEntry> rows = dbMan.getUserHistory(500, filter);
+                    List<LogRow> mapped = new ArrayList<>();
+                    for (DBMan.UserHistoryEntry e : rows) {
+                        mapped.add(new LogRow(e.createdAt, e.activityType, e.content));
+                    }
+                    Platform.runLater(() -> {
+                        table.getItems().setAll(mapped);
+                        statusLabel.setText(String.format("%,d logs", mapped.size()));
+                    });
+                } catch (SQLException e) {
+                    Platform.runLater(() -> statusLabel.setText("Error loading logs."));
+                }
+            });
+            t.setDaemon(true);
+            t.start();
+        };
+
+        refreshBtn.setOnAction(e -> {
+            loadTypes.run();
+            loadLogs.run();
+        });
+        typeBox.setOnAction(e -> loadLogs.run());
+
+        loadTypes.run();
+        loadLogs.run();
     }
 
 
@@ -881,11 +1002,22 @@ public class SentenceBuilderApp extends Application {
 
     private List<FileRow> toFileRows(List<ImportedFile> files) 
     {
+        return toFileRows(files, false);
+    }
+
+    private List<FileRow> toFileRows(List<ImportedFile> files, boolean truncateNames) 
+    {
         List<FileRow> rows = new ArrayList<>();
         for (ImportedFile f : files)
-            rows.add(new FileRow(f.fileName,
+            rows.add(new FileRow(truncateNames ? truncateTail(f.fileName, 50) : f.fileName,
                     String.format("%,d", f.wordCount), f.importDate));
         return rows;
+    }
+
+    private String truncateTail(String value, int keepTailChars) {
+        if (value == null) return "";
+        if (keepTailChars <= 0 || value.length() <= keepTailChars) return value;
+        return "..." + value.substring(value.length() - keepTailChars);
     }
 
     private VBox statCard(String labelText, Label valueLabel) 
@@ -935,6 +1067,32 @@ public class SentenceBuilderApp extends Application {
         }
     }
 
+    private void loadGenerationHistory(ListView<String> histList, Label statusLabel) {
+        Thread t = new Thread(() -> {
+            try {
+                List<DBMan.UserHistoryEntry> rows = dbMan.getUserHistory(300, "GENERATION");
+                List<String> sentences = new ArrayList<>();
+                for (DBMan.UserHistoryEntry e : rows) {
+                    if (e.content != null && !e.content.isBlank()) {
+                        sentences.add(e.content);
+                    }
+                }
+                Platform.runLater(() -> histList.getItems().setAll(sentences));
+            } catch (SQLException e) {
+                Platform.runLater(() -> statusLabel.setText("Could not load generation history."));
+            }
+        });
+        t.setDaemon(true);
+        t.start();
+    }
+
+    private void logEvent(String activityType, String content) {
+        try {
+            dbMan.logUserActivity(activityType, content);
+        } catch (SQLException ignored) {
+        }
+    }
+
     private String csvEscape(String value) {
         if (value == null) return "";
         String escaped = value.replace("\"", "\"\"");
@@ -967,6 +1125,15 @@ public class SentenceBuilderApp extends Application {
             this.boostTotalRaw = boostTotal.replace(",", "");
             this.boostStartsRaw = boostStarts.replace(",", "");
             this.effectiveTotalRaw = effectiveTotal.replace(",", "");
+        }
+    }
+
+    public static class LogRow {
+        String time, type, content;
+        LogRow(String time, String type, String content) {
+            this.time = time;
+            this.type = type;
+            this.content = content;
         }
     }
 

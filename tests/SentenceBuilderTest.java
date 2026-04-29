@@ -12,7 +12,7 @@ public class SentenceBuilderTest {
     @BeforeEach
     void setUp() {
         dbMan = new StubDBMan();
-        builder = new SentenceBuilder(dbMan);
+        builder = new SentenceBuilder(dbMan, new Reporter(dbMan));
     }
 
     @Test

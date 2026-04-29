@@ -279,31 +279,17 @@ public class SentenceBuilder {
     }
 
     public List<String> getSuggestionsForInput(String text) {
-        String normalized = text == null ? "" : text.trim().toLowerCase();
-        if (normalized.isEmpty()) {
+        List<String> words = Tokenizer.tokenizeCurrentSentenceWords(text);
+        if (words.isEmpty()) {
             return fetchSentenceStarters();
         }
-
-        // Use only the current sentence context so punctuation can start a new search context.
-        String[] sentenceSegments = normalized.split("[.!?]+");
-        String currentSentence = sentenceSegments.length == 0
-                ? ""
-                : sentenceSegments[sentenceSegments.length - 1].trim();
-
-        // Keep only word-like characters used by the corpus parser.
-        currentSentence = currentSentence.replaceAll("[^a-zA-Z'\\-\\s]", " ").trim();
-        if (currentSentence.isEmpty()) {
-            return fetchSentenceStarters();
-        }
-
-        String[] words = currentSentence.split("\\s+");
         List<String> suggestions = new ArrayList<>();
 
-        if (words.length >= 2) {
-            suggestions = fetchTrigrams(words[words.length - 2], words[words.length - 1]);
+        if (words.size() >= 2) {
+            suggestions = fetchTrigrams(words.get(words.size() - 2), words.get(words.size() - 1));
         }
         if (suggestions.isEmpty()) {
-            suggestions = fetchBigrams(words[words.length - 1]);
+            suggestions = fetchBigrams(words.get(words.size() - 1));
         }
         if (suggestions.isEmpty()) {
             suggestions = fetchSentenceStarters();
@@ -372,8 +358,9 @@ public class SentenceBuilder {
     }
 
     private void learnFromUserInput(String userSentence, LearningStrength learningStrength) {
-        String[] words = userSentence.replaceAll("[^a-zA-Z ]", "").toLowerCase().split("\\s+");
-        if (words.length == 0 || words[0].isEmpty()) return;
+        List<String> tokenList = Tokenizer.tokenizeWords(userSentence);
+        if (tokenList.isEmpty()) return;
+        String[] words = tokenList.toArray(new String[0]);
 
         // 1. Hot-Load Memory Caches
         String starter = words[0];

@@ -2,10 +2,9 @@
 .DS_Store
 /mysql-connector-j-9.6.0
 /javafx-sdk-25.0.2
-/test-results
+javafx-sdk-25.0.3
+/test-results/*
 /DataSources
 *.txt
 *.class
-
-javafx-sdk-25.0.3
 *.db

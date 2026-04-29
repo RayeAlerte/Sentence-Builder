@@ -267,6 +267,13 @@ public class DBMan {
     // User Interaction & Dynamic Learning
     // ─────────────────────────────────────────
 
+    public static class UserHistoryEntry {
+        public int id;
+        public String activityType;
+        public String content;
+        public String createdAt;
+    }
+
     public List<String> getBigramFallback(String word) throws SQLException {
         List<String> options = new ArrayList<>();
         String sql = "SELECT word2 FROM Bigrams WHERE word1 = ? ORDER BY (frequency + boost_frequency) DESC LIMIT 50";
@@ -300,6 +307,42 @@ public class DBMan {
             ps.executeUpdate();
             conn.commit(); // Ensure it saves immediately
         }
+    }
+
+    public List<UserHistoryEntry> getUserHistory(int limit, String activityType) throws SQLException {
+        List<UserHistoryEntry> rows = new ArrayList<>();
+        String sql = "SELECT id, activity_type, content, created_at FROM UserHistory " +
+                (activityType == null || activityType.isBlank() ? "" : "WHERE activity_type = ? ") +
+                "ORDER BY datetime(created_at) DESC, id DESC LIMIT ?";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            int paramIndex = 1;
+            if (activityType != null && !activityType.isBlank()) {
+                ps.setString(paramIndex++, activityType);
+            }
+            ps.setInt(paramIndex, limit);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    UserHistoryEntry e = new UserHistoryEntry();
+                    e.id = rs.getInt("id");
+                    e.activityType = rs.getString("activity_type");
+                    e.content = rs.getString("content");
+                    e.createdAt = rs.getString("created_at");
+                    rows.add(e);
+                }
+            }
+        }
+        return rows;
+    }
+
+    public List<String> getUserHistoryActivityTypes() throws SQLException {
+        List<String> types = new ArrayList<>();
+        String sql = "SELECT DISTINCT activity_type FROM UserHistory WHERE activity_type IS NOT NULL ORDER BY activity_type ASC";
+        try (Statement st = conn.createStatement(); ResultSet rs = st.executeQuery(sql)) {
+            while (rs.next()) {
+                types.add(rs.getString("activity_type"));
+            }
+        }
+        return types;
     }
 
     public void insertLearnedData(String[] words, double strengthMultiplier) {

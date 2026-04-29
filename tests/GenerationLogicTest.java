@@ -15,7 +15,7 @@ public class GenerationLogicTest {
     @BeforeEach
     void setUp() throws SQLException {
         mockDB = new MockDBMan();
-        builder = new SentenceBuilder(mockDB);
+        builder = new SentenceBuilder(mockDB, new Reporter(mockDB));
     }
 
     // ─── G1: Trigram Priority Over Bigram ────────────────────────────────────

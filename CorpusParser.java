@@ -2,7 +2,6 @@ import java.io.*;
 import java.nio.file.*;
 import java.sql.*;
 import java.util.*;
-import java.util.regex.*;
 import java.util.function.Consumer;
 
 public class CorpusParser {
@@ -127,8 +126,6 @@ public class CorpusParser {
         List<Trigram> trigramBatch = new ArrayList<>();
         List<String> endBatch = new ArrayList<>();
 
-        Pattern pattern = Pattern.compile("([a-zA-Z]+(?:['\\-][a-zA-Z]+)*)|(\\.\\.\\.|--|—|[!?:]|\\.(?![A-Za-z0-9])|\\s{2,})");
-
         try (BufferedReader br = new BufferedReader(new FileReader(file))) {
             String line;
             boolean isStartOfSentence = true;
@@ -150,7 +147,7 @@ public class CorpusParser {
                 if (!readActive)
                     continue;
 
-                line = line.replaceAll("[\"_]", "").toLowerCase();
+                line = Tokenizer.normalizeCorpusLine(line);
 
                 // Blank/whitespace-only line ends the current sentence
                 if (line.trim().isEmpty()) {
@@ -164,7 +161,7 @@ public class CorpusParser {
                     continue;
                 }
 
-                Matcher matcher = pattern.matcher(line);
+                java.util.regex.Matcher matcher = Tokenizer.CORPUS_PATTERN.matcher(line);
 
                 while (matcher.find()) {
                     if (matcher.group(1) != null) {
