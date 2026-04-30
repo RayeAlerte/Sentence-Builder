@@ -482,6 +482,15 @@ public class DBMan {
         }).start();
     }
 
+	/**
+     * Core dynamic proportional weighting for user learning: maps local corpus statistics to a single
+     * effective-frequency target used when computing boost deltas (starters, bigrams, trigrams).
+     * <p>
+     * With context data, the target reflects how strong follower edges typically are in that neighborhood
+     * (median vs. 75th percentile), capped below the dominant edge so one user's phrase cannot eclipse the
+     * entire Zipf tail at once. {@code strengthMultiplier} scales that target for Gentle / Balanced / Strong UI modes.
+     * With no context (cold corpus), {@code coldStartTarget} supplies a small baseline so learning works from day one.
+     */
     private int computeTargetFromContext(List<Integer> frequencies, int coldStartTarget, double strengthMultiplier) {
         if (frequencies == null || frequencies.isEmpty()) {
             return Math.max(1, (int) Math.round(coldStartTarget * strengthMultiplier));

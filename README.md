@@ -57,6 +57,23 @@ Learning Modes
 |Balanced|1.0|Default: full strength of the proportional algorithm—no extra dampening or amplification beyond median/p75/cap logic.|
 |Strong|1.25|Raises the target by 25% after the same context analysis. Your phrasing can surface faster in autocomplete and generation in that context, while still being bounded by the local distribution (median/p75 and the 60% of top cap), so it does not behave like a fixed huge weight on every edge.|
 
+### Interpreting Learning Strength (Zipf-aware behavior)
+
+Natural language follows a Zipf-like distribution: a small number of words are extremely common, while most words are rare.  
+Learning strength controls how quickly your user input becomes competitive **within its local context**.
+
+- **Gentle (0.8):** conservative adaptation; corpus patterns stay dominant.
+- **Balanced (1.0):** default adaptation speed.
+- **Strong (1.25):** faster personalization so new phrasing appears sooner.
+
+Strength scales a context-aware target (derived from local frequency distribution), not a fixed global weight.  
+This means personalization grows where needed, while still preserving stable grammar pathways in very common contexts.
+
+In the Edit panel:
+- **Base counts** (`total/start/end`) represent absolute corpus analytics.
+- **Boost counts** represent personalization influence.
+- **Effective total = base + boost** is what generation/autocomplete ranking uses.
+
 ### 5) Reporting
 
 - Sort by: alphabetical, frequency, boost totals, boost starts, effective totals.
