@@ -51,7 +51,7 @@ public class Reporter {
 
 	public Reporter(DBMan db) {
 		dbMan = db;
-		type = SortType.FREQ;
+		type = SortType.ALPHA;
 		scope = ScopeType.ALL;
 	}
 

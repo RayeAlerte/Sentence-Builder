@@ -316,6 +316,10 @@ public class SentenceBuilderApp extends Application {
         statusLabel.setStyle("-fx-font-size: 13px; -fx-text-fill: #555555;");
         statusLabel.setWrapText(true);
 
+        ProgressBar progressBar = new ProgressBar(0);
+        progressBar.setMaxWidth(Double.MAX_VALUE);
+        progressBar.setVisible(false);
+
         Button parseBtn  = new Button("Parse Files");
         Button cancelBtn = new Button("Cancel");
         cancelBtn.setDisable(true);
@@ -331,7 +335,7 @@ public class SentenceBuilderApp extends Application {
         page.getChildren().addAll(
                 heading, browseRow,
                 pendingLabel, pendingList, removeBtn,
-                buttonRow, statusLabel,
+                buttonRow, progressBar, statusLabel,
                 historyLabel, historyTable);
 
         contentArea.getChildren().setAll(page);
@@ -353,6 +357,12 @@ public class SentenceBuilderApp extends Application {
             corpusParser.setOnProgress(msg ->
                     Platform.runLater(() -> statusLabel.setText(msg)));
 
+            corpusParser.setOnProgressNumeric(fraction ->
+                    Platform.runLater(() -> progressBar.setProgress(fraction)));
+
+            progressBar.setProgress(0);
+            progressBar.setVisible(true);
+
             Thread parseThread = new Thread(() -> {
                 try {
                     corpusParser.parseFiles(filesToParse);
@@ -360,6 +370,8 @@ public class SentenceBuilderApp extends Application {
                     modelLoaded = false;
 
                     Platform.runLater(() -> {
+                        progressBar.setProgress(1.0);
+                        progressBar.setVisible(false);
                         statusLabel.setText(CorpusParser.cancelRequested
                                 ? "Import cancelled." : "Import complete!");
                         logEvent(CorpusParser.cancelRequested ? "IMPORT_CANCELLED" : "IMPORT_DONE",
@@ -376,6 +388,7 @@ public class SentenceBuilderApp extends Application {
                 } catch (Exception ex) {
                     logEvent("IMPORT_ERROR", ex.getMessage());
                     Platform.runLater(() -> {
+                        progressBar.setVisible(false);
                         statusLabel.setText("Error: " + ex.getMessage());
                         parseBtn.setDisable(false);
                         browseBtn.setDisable(false);

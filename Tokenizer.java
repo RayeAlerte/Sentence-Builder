@@ -7,13 +7,13 @@ import java.util.regex.Pattern;
 public final class Tokenizer {
     private Tokenizer() {}
 
-    // Word tokens preserve internal apostrophes/hyphens and allow alpha-numeric forms.
-    // Examples: "what's", "state-of-the-art", "gpt-4", "v2"
-    private static final Pattern WORD_PATTERN = Pattern.compile("[\\p{L}\\p{N}]+(?:['\\-][\\p{L}\\p{N}]+)*");
+    // Word tokens preserve internal apostrophes/hyphens. Pure numbers and numeric tokens are excluded.
+    // Examples: "what's", "state-of-the-art"
+    private static final Pattern WORD_PATTERN = Pattern.compile("\\p{L}+(?:['\\-]\\p{L}+)*");
 
-    // Sentence boundary markers used by corpus parser.
+    // Sentence boundary markers used by corpus parser. Numbers are not captured as word tokens.
     public static final Pattern CORPUS_PATTERN = Pattern.compile(
-            "([\\p{L}\\p{N}]+(?:['\\-][\\p{L}\\p{N}]+)*)|(\\.\\.\\.|--|—|[!?:]|\\.(?![\\p{L}\\p{N}])|\\s{2,})");
+            "(\\p{L}+(?:['\\-]\\p{L}+)*)|(\\.\\.\\.|--|—|[!?:]|\\.(?![\\p{L}])|\\s{2,})");
 
     private static final Pattern URL_PATTERN = Pattern.compile("https?://\\S+|www\\.\\S+");
     private static final Pattern EMAIL_PATTERN = Pattern.compile("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}");
@@ -69,7 +69,7 @@ public final class Tokenizer {
                 : sentenceSegments[sentenceSegments.length - 1];
 
         // Keep apostrophes and hyphens for consistent token identity with corpus parser.
-        currentSentence = currentSentence.replaceAll("[^\\p{L}\\p{N}'\\-\\s]", " ");
+        currentSentence = currentSentence.replaceAll("[^\\p{L}'\\-\\s]", " ");
         return tokenizeWords(currentSentence);
     }
 
