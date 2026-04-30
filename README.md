@@ -16,6 +16,7 @@ Sentence Builder is a JavaFX application that parses large text corpora into an 
 - **Core tables:** `WordCorpus`, `Bigrams`, `Trigrams`, `ImportedFiles`, `UserHistory`
 - **Migrations:** SQL files in `migrations/` applied on startup
 - **Tokenizer:** shared `Tokenizer.java` used by parser + live user input paths
+- **Tests:** JUnit testing framework
 
 ## Key Features
 
@@ -49,7 +50,9 @@ Sentence Builder is a JavaFX application that parses large text corpora into an 
 - Reporting can still show absolute base counts.
 
 Learning Modes
+
 | Mode | Multiplier | Role
+| - | - | - |
 |Gentle|0.8|Dials the computed target down by 20%. Learned choices nudge the model a bit but stay closer to what the corpus (and existing boosts) already imply. Good when you want personalization without shifting suggestions much.|
 |Balanced|1.0|Default: full strength of the proportional algorithm—no extra dampening or amplification beyond median/p75/cap logic.|
 |Strong|1.25|Raises the target by 25% after the same context analysis. Your phrasing can surface faster in autocomplete and generation in that context, while still being bounded by the local distribution (median/p75 and the 60% of top cap), so it does not behave like a fixed huge weight on every edge.|

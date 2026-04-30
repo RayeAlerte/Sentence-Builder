@@ -8,3 +8,4 @@ javafx-sdk-25.0.3
 *.txt
 *.class
 *.db
+test-results/report.md

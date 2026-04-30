@@ -1,7 +1,7 @@
 # Sentence Builder — Test Report
 
-**Run Date:** 2026-04-21 14:30:40
-**Total Duration:** 
+**Run Date:** 2026-04-29 17:54:26
+**Total Duration:** 207 ms
 
 ---
 
@@ -9,11 +9,11 @@
 
 | Metric | Value |
 |---|---|
-| Total Tests | 23 |
-| ✅ Passed | 23 |
-| ❌ Failed | 0 |
-| ⏭ Skipped | 0 |
-| ⚡ Stress Parse (100k words) | 419ms |
+| Total Tests | [ |
+| ✅ Passed | [ |
+| ❌ Failed | [ |
+| ⏭ Skipped | [ |
+| ⚡ Stress Parse (100k words) | 99ms |
 
 ---
 
@@ -28,7 +28,7 @@
 ### Stress Test (StressTest)
 | Test | Status |
 |---|---|
-| stressTestParsing (100k words in ) | ✅ PASSED |
+| stressTestParsing (100k words in 99ms) | ✅ PASSED |
 
 ### Parsing Edge Cases (ParsingEdgeCaseTest)
 | Test | Status |
