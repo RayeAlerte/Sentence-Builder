@@ -1078,7 +1078,7 @@ public class SentenceBuilderApp extends Application {
 
 
     // Helper so chip click logic isn't duplicatedMarket
-    private Button chipButton(String word, TextArea inputArea, HBox chipsBox) 
+    private Button chipButton(String word, TextArea inputArea, HBox chipsBox)
     {
         Button chip = new Button(word);
         chip.setStyle(
@@ -1096,6 +1096,13 @@ public class SentenceBuilderApp extends Application {
                     : current + " " + word + " ");
             inputArea.positionCaret(inputArea.getText().length());
             chipsBox.getChildren().clear();
+
+            List<String> next = sentenceBuilder.getSuggestionsForInput(inputArea.getText());
+            if (!next.isEmpty()) {
+                for (String s : next.subList(0, Math.min(5, next.size()))) {
+                    chipsBox.getChildren().add(chipButton(s, inputArea, chipsBox));
+                }
+            }
         });
         return chip;
     }
