@@ -6,7 +6,14 @@ fi
 
 # 2. Paths
 JUNIT="lib/junit-platform-console-standalone-1.11.0.jar"
-CP=".:tests:$MYSQL:$JUNIT"
+CP_ENTRIES=".:tests:$JUNIT"
+if [ -n "$MYSQL" ]; then
+    CP_ENTRIES="$CP_ENTRIES:$MYSQL"
+fi
+if [ -n "$MYSQLITE" ]; then
+    CP_ENTRIES="$CP_ENTRIES:$MYSQLITE"
+fi
+CP="$CP_ENTRIES"
 FX_MODS="javafx.controls"
 RESULTS_DIR="test-results"
 RAW_LOG="$RESULTS_DIR/latest.txt"
@@ -16,10 +23,14 @@ RUN_DATE=$(date "+%Y-%m-%d %H:%M:%S")
 
 mkdir -p "$RESULTS_DIR"
 
-if [ -z "$FX" ] || [ -z "$MYSQL" ]; then
-    echo "⚠️ Warning: FX or MYSQL path not set. Compilation might fail."
+if [ -z "$FX" ]; then
+    echo "⚠️ Warning: FX path not set. Compilation might fail."
     echo "Current FX: $FX"
+fi
+if [ -z "$MYSQL" ] && [ -z "$MYSQLITE" ]; then
+    echo "⚠️ Warning: neither MYSQL nor MYSQLITE classpath set."
     echo "Current MYSQL: $MYSQL"
+    echo "Current MYSQLITE: $MYSQLITE"
 fi
 
 # 3. Compile all source files and tests
@@ -45,6 +56,7 @@ java -cp $CP --module-path $FX --add-modules $FX_MODS \
      --select-class GenerationLogicTest \
      --select-class AutocompleteLogicTest \
      --select-class CancellationTest \
+     --select-class TokenizerNormalizationTest \
      --details=verbose 2>&1 | tee "$RAW_LOG"
 
 EXIT_CODE=${PIPESTATUS[0]}
@@ -52,13 +64,13 @@ EXIT_CODE=${PIPESTATUS[0]}
 # 5. Strip ANSI colour codes into a clean log for reliable parsing
 sed 's/\x1b\[[0-9;]*m//g' "$RAW_LOG" > "$CLEAN_LOG"
 
-# 6. Parse summary stats from the clean bracketed lines at the bottom
-TOTAL=$(grep -oP '\d+(?= tests found)' "$CLEAN_LOG" | tail -1)
-PASSED=$(grep -oP '\d+(?= tests successful)' "$CLEAN_LOG" | tail -1)
-FAILED=$(grep -oP '\d+(?= tests failed)' "$CLEAN_LOG" | tail -1)
-SKIPPED=$(grep -oP '\d+(?= tests skipped)' "$CLEAN_LOG" | tail -1)
-DURATION=$(grep -oP 'Test run finished after \K[0-9]+ ms' "$CLEAN_LOG" | tail -1)
-STRESS_MS=$(grep "Parsed 100,000+ words in:" "$CLEAN_LOG" | grep -oP '\d+ms' | head -1)
+# 6. Parse summary stats from the clean bracketed lines at the bottom (portable, no grep -P)
+TOTAL=$(awk '/tests found/ {print $1}' "$CLEAN_LOG" | tail -1)
+PASSED=$(awk '/tests successful/ {print $1}' "$CLEAN_LOG" | tail -1)
+FAILED=$(awk '/tests failed/ {print $1}' "$CLEAN_LOG" | tail -1)
+SKIPPED=$(awk '/tests skipped/ {print $1}' "$CLEAN_LOG" | tail -1)
+DURATION=$(sed -n 's/.*Test run finished after \([0-9][0-9]* ms\).*/\1/p' "$CLEAN_LOG" | tail -1)
+STRESS_MS=$(awk -F': ' '/Parsed 100,000\+ words in:/ {print $2}' "$CLEAN_LOG" | head -1)
 
 # 7. Helper: look up status for a method name via the uniqueId line
 # The uniqueId line contains methodName = 'xxx'; the status line is within 10 lines below

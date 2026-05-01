@@ -16,6 +16,10 @@ public class SentenceBuilder {
     /* Made public so it can be accessed in ui */
     public int randomnessPool = 1; // 1 = Greedy (Top result), >1 = Random from Top N
 
+    public enum LearningStrength {
+        GENTLE, BALANCED, STRONG
+    }
+
     enum CLIMode {
         REPORTING, AUTOCOMPLETE, GENERATE, OPTIONS, EXIT;
 
@@ -150,25 +154,30 @@ public class SentenceBuilder {
             System.out.print("Input: " + currentInput);
             String token = scanner.nextLine().toLowerCase();
             if (token.matches(".*[.!?].*")) {
+                currentInput.append(token);
+                String finalSentence = currentInput.toString().trim();
+                
+                try {
+                    dbMan.logUserActivity("AUTOCOMPLETE", finalSentence);
+                } catch (SQLException e) { System.out.println("Log error."); }
+                
+                learnFromUserInput(finalSentence, LearningStrength.BALANCED);
                 System.out.println("Autocomplete ended.");
                 break;
             }
 
             currentInput.append(token).append(" ");
-
             String[] words = currentInput.toString().trim().split(" ");
-
             List<String> suggestions = new ArrayList<>();
 
-            // 1. Try Trigram context first
+            // Use the new fetchers instead of getOrDefault
             if (words.length >= 2) {
-                String key = words[words.length - 2] + " " + words[words.length - 1];
-                suggestions = trigramMap.getOrDefault(key, new ArrayList<>());
-            } else if (suggestions.isEmpty() && words.length >= 1) {
-                // 2. Fallback to Bigram if Trigram fails
-                String key = words[words.length - 1];
-                suggestions = bigramMap.getOrDefault(key, new ArrayList<>());
-            } else if (suggestions.isEmpty() && words.length <= 1) {
+                suggestions = fetchTrigrams(words[words.length - 2], words[words.length - 1]);
+            } 
+            if (suggestions.isEmpty() && words.length >= 1) {
+                suggestions = fetchBigrams(words[words.length - 1]);
+            } 
+            if (suggestions.isEmpty() && words.length <= 1) {
                 suggestions = new ArrayList<>(sentenceStarters);
             }
 
@@ -202,6 +211,15 @@ public class SentenceBuilder {
     }
 
     public List<String> runGeneration(String og_sentence) {
+        return runGeneration(og_sentence, 15, true, LearningStrength.BALANCED);
+    }
+
+    public List<String> runGeneration(String og_sentence, int maxGeneratedWords, boolean rememberNewInput) {
+        return runGeneration(og_sentence, maxGeneratedWords, rememberNewInput, LearningStrength.BALANCED);
+    }
+
+    public List<String> runGeneration(String og_sentence, int maxGeneratedWords, boolean rememberNewInput,
+            LearningStrength learningStrength) {
         Scanner scanner = new Scanner(og_sentence);
         String rawInput = scanner.nextLine().trim().toLowerCase();
 
@@ -213,27 +231,31 @@ public class SentenceBuilder {
         }
         String currentWord = inputWords[0];
 
+        try { dbMan.logUserActivity("STARTER_WORD", currentWord); } catch (SQLException e) {}
+        if (rememberNewInput && !sentenceStarters.contains(currentWord)) {
+            learnFromUserInput(currentWord, learningStrength);
+        }
+
         List<String> sentence = new ArrayList<>();
         sentence.add(currentWord);
 
-        for (int i = 0; i < 15; i++) { // Generate up to 15 words
+        for (int i = 0; i < maxGeneratedWords; i++) {
             String nextWord = null;
 
-            // 1. Try Trigram context
             if (sentence.size() >= 2) {
-                String key = sentence.get(sentence.size() - 2) + " " + sentence.get(sentence.size() - 1);
-                List<String> options = trigramMap.get(key);
+                // Use fetchTrigrams
+                List<String> options = fetchTrigrams(sentence.get(sentence.size() - 2), sentence.get(sentence.size() - 1));
                 nextWord = pickNextWord(options);
             }
 
-            // 2. Fallback to Bigram
             if (nextWord == null) {
-                List<String> options = bigramMap.get(currentWord);
+                // Use fetchBigrams
+                List<String> options = fetchBigrams(currentWord);
                 nextWord = pickNextWord(options);
             }
 
             if (nextWord == null)
-                nextWord = pickNextWord(sentenceStarters);
+                nextWord = pickNextWord(fetchSentenceStarters());
 
             if (nextWord == null)
                 break; // Dead end
@@ -247,9 +269,57 @@ public class SentenceBuilder {
             sentence.set(0, firstWord.substring(0, 1).toUpperCase() + firstWord.substring(1));
         }
 
+        String finalOutput = String.join(" ", sentence) + ".";
+        try { dbMan.logUserActivity("GENERATION", finalOutput); } catch (SQLException e) {}
+        
+        System.out.println("Generated: " + finalOutput);
+        
         scanner.close();
         return sentence;
     }
+
+    public List<String> getSuggestionsForInput(String text) {
+        List<String> words = Tokenizer.tokenizeCurrentSentenceWords(text);
+        if (words.isEmpty()) {
+            return fetchSentenceStarters();
+        }
+        List<String> suggestions = new ArrayList<>();
+
+        if (words.size() >= 2) {
+            suggestions = fetchTrigrams(words.get(words.size() - 2), words.get(words.size() - 1));
+        }
+        if (suggestions.isEmpty()) {
+            suggestions = fetchBigrams(words.get(words.size() - 1));
+        }
+        if (suggestions.isEmpty()) {
+            suggestions = fetchSentenceStarters();
+        }
+        return suggestions;
+    }
+
+    public void rememberUserInput(String userSentence) {
+        learnFromUserInput(userSentence, LearningStrength.BALANCED);
+    }
+
+    public void rememberUserInput(String userSentence, LearningStrength learningStrength) {
+        learnFromUserInput(userSentence, learningStrength);
+    }
+
+    private List<String> fetchSentenceStarters() {
+        try {
+            List<String> starters = dbMan.getSentenceStarters(500);
+            if (!starters.isEmpty()) {
+                sentenceStarters = new ArrayList<>(starters);
+            }
+        } catch (SQLException e) {
+            System.out.println("DB Error: " + e.getMessage());
+        }
+        return new ArrayList<>(sentenceStarters);
+    }
+
+    // ─────────────────────────────────────────
+    // Dynamic Fetching/Selection & Learning Helpers
+    // ─────────────────────────────────────────
 
     // Helper method for selecting the next word based on randomness settings
     /* Made public so it can be accessed in ui */
@@ -258,6 +328,71 @@ public class SentenceBuilder {
             return null;
         int bound = Math.min(options.size(), randomnessPool);
         return options.get(random.nextInt(bound));
+    }
+
+    private List<String> fetchBigrams(String word) {
+        List<String> options = bigramMap.get(word);
+        if (options != null && !options.isEmpty()) return options;
+
+        try {
+            options = dbMan.getBigramFallback(word);
+            if (!options.isEmpty()) bigramMap.put(word, options); // Hot-load LRU
+        } catch (SQLException e) {
+            System.out.println("DB Error: " + e.getMessage());
+        }
+        return options != null ? options : new ArrayList<>();
+    }
+
+    private List<String> fetchTrigrams(String word1, String word2) {
+        String key = word1 + " " + word2;
+        List<String> options = trigramMap.get(key);
+        if (options != null && !options.isEmpty()) return options;
+
+        try {
+            options = dbMan.getTrigramFallback(word1, word2);
+            if (!options.isEmpty()) trigramMap.put(key, options); // Hot-load LRU
+        } catch (SQLException e) {
+            System.out.println("DB Error: " + e.getMessage());
+        }
+        return options != null ? options : new ArrayList<>();
+    }
+
+    private void learnFromUserInput(String userSentence, LearningStrength learningStrength) {
+        List<String> tokenList = Tokenizer.tokenizeWords(userSentence);
+        if (tokenList.isEmpty()) return;
+        String[] words = tokenList.toArray(new String[0]);
+
+        // 1. Hot-Load Memory Caches
+        String starter = words[0];
+        if (!sentenceStarters.contains(starter)) {
+            sentenceStarters.add(0, starter);
+        }
+
+        for (int i = 0; i < words.length - 1; i++) {
+            String w1 = words[i];
+            String w2 = words[i + 1];
+            
+            bigramMap.computeIfAbsent(w1, k -> new ArrayList<>()).remove(w2);
+            bigramMap.get(w1).add(0, w2);
+
+            if (i < words.length - 2) {
+                String w3 = words[i + 2];
+                String triKey = w1 + " " + w2;
+                trigramMap.computeIfAbsent(triKey, k -> new ArrayList<>()).remove(w3);
+                trigramMap.get(triKey).add(0, w3);
+            }
+        }
+
+        // 2. Send to DBMan for context-aware weighted UPSERT
+        dbMan.insertLearnedData(words, toStrengthMultiplier(learningStrength));
+    }
+
+    private double toStrengthMultiplier(LearningStrength learningStrength) {
+        return switch (learningStrength) {
+            case GENTLE -> 0.8;
+            case BALANCED -> 1.0;
+            case STRONG -> 1.25;
+        };
     }
 
 }

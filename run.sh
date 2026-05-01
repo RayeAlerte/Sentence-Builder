@@ -2,8 +2,8 @@
 source .env
 echo $FX
 javac --module-path $FX --add-modules javafx.controls \
-      -cp $MYSQL:. \
+      -cp $MYSQLITE:. \
       Main.java CorpusParser.java SentenceBuilderApp.java SentenceBuilder.java DBMan.java
 java --module-path $FX --add-modules javafx.controls \
-     -cp $MYSQL:. Main $1
+     -cp $MYSQLITE:. Main $1
 rm -f *.class

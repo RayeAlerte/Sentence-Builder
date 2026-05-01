@@ -2,7 +2,6 @@ import java.io.*;
 import java.nio.file.*;
 import java.sql.*;
 import java.util.*;
-import java.util.regex.*;
 import java.util.function.Consumer;
 
 public class CorpusParser {
@@ -45,7 +44,9 @@ public class CorpusParser {
         for (File file : files)
         {
             if (cancelRequested) break;
-            if (alreadyImported.contains(file.getName()))
+            String dedupKey = getDedupKey(file);
+            // Backward compatibility: older rows may have stored only file.getName().
+            if (alreadyImported.contains(dedupKey) || alreadyImported.contains(file.getName()))
             {
                 reportProgress("Skipping (already imported): " + file.getName());
                 continue;
@@ -66,7 +67,11 @@ public class CorpusParser {
             Files.list(rootData)
                     .filter(Files::isRegularFile)
                     .filter(p -> p.toString().endsWith(".txt"))
-                    .filter(p -> !alreadyImported.contains(p.toFile().getName()))
+                    .filter(p -> {
+                        File f = p.toFile();
+                        String dedupKey = getDedupKey(f);
+                        return !alreadyImported.contains(dedupKey) && !alreadyImported.contains(f.getName());
+                    })
                     .forEach(path -> {
                         if (!cancelRequested)
                             processFile(path.toFile(), false);
@@ -79,7 +84,11 @@ public class CorpusParser {
                 Files.list(gutenbergData)
                         .filter(Files::isRegularFile)
                         .filter(p -> p.toString().endsWith(".txt"))
-                        .filter(p -> !alreadyImported.contains(p.toFile().getName()))
+                        .filter(p -> {
+                            File f = p.toFile();
+                            String dedupKey = getDedupKey(f);
+                            return !alreadyImported.contains(dedupKey) && !alreadyImported.contains(f.getName());
+                        })
                         .forEach(path -> {
                             if (!cancelRequested)
                                 processFile(path.toFile(), true);
@@ -93,7 +102,11 @@ public class CorpusParser {
                 Files.list(cocaData)
                         .filter(Files::isRegularFile)
                         .filter(p -> p.toString().endsWith(".txt"))
-                        .filter(p -> !alreadyImported.contains(p.toFile().getName()))
+                        .filter(p -> {
+                            File f = p.toFile();
+                            String dedupKey = getDedupKey(f);
+                            return !alreadyImported.contains(dedupKey) && !alreadyImported.contains(f.getName());
+                        })
                         .forEach(path -> {
                             if (!cancelRequested)
                                 processFile(path.toFile(), false);
@@ -112,8 +125,6 @@ public class CorpusParser {
         List<Bigram> bigramBatch = new ArrayList<>();
         List<Trigram> trigramBatch = new ArrayList<>();
         List<String> endBatch = new ArrayList<>();
-
-        Pattern pattern = Pattern.compile("([a-zA-Z]+(?:['\\-][a-zA-Z]+)*)|(\\.\\.\\.|--|—|[!?:]|\\.(?![A-Za-z0-9])|\\s{2,})");
 
         try (BufferedReader br = new BufferedReader(new FileReader(file))) {
             String line;
@@ -136,7 +147,7 @@ public class CorpusParser {
                 if (!readActive)
                     continue;
 
-                line = line.replaceAll("[\"_]", "").toLowerCase();
+                line = Tokenizer.normalizeCorpusLine(line);
 
                 // Blank/whitespace-only line ends the current sentence
                 if (line.trim().isEmpty()) {
@@ -150,7 +161,7 @@ public class CorpusParser {
                     continue;
                 }
 
-                Matcher matcher = pattern.matcher(line);
+                java.util.regex.Matcher matcher = Tokenizer.CORPUS_PATTERN.matcher(line);
 
                 while (matcher.find()) {
                     if (matcher.group(1) != null) {
@@ -238,7 +249,7 @@ public class CorpusParser {
 
             if (!cancelRequested) {
                 ImportedFile importedFile = new ImportedFile();
-                importedFile.fileName = file.getName();
+                importedFile.fileName = getDedupKey(file);
                 importedFile.wordCount = wordCount;
                 dbMan.logImport(importedFile);
                 reportProgress("Done: " + file.getName() + " (" + String.format("%,d", wordCount) + "words)");
@@ -256,6 +267,14 @@ public class CorpusParser {
             catch (SQLException ex) {
                 ex.printStackTrace();
             }
+        }
+    }
+
+    private String getDedupKey(File file) {
+        try {
+            return file.getCanonicalPath();
+        } catch (IOException e) {
+            return file.getAbsolutePath();
         }
     }
 }

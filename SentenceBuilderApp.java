@@ -9,6 +9,9 @@ import javafx.scene.layout.*;
 import javafx.stage.FileChooser;
 import javafx.stage.Stage;
 import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.io.PrintWriter;
 import java.sql.*;
 import java.util.*;
 
@@ -31,6 +34,10 @@ public class SentenceBuilderApp extends Application {
     private Button btnGenerate;
     private Button btnAutoComplete;
     private Button btnReports;
+    private Button btnEdit;
+    private Button btnLogs;
+    private String lastRememberedAutocompleteInput = "";
+    private String lastLoggedAutocompleteInput = "";
 
     @Override
     public void start(Stage stage) {
@@ -40,6 +47,7 @@ public class SentenceBuilderApp extends Application {
         try 
         {
             dbMan.connect();
+            logEvent("APP_START", "SentenceBuilderApp started");
         } 
         catch (SQLException e) 
         {
@@ -70,7 +78,7 @@ public class SentenceBuilderApp extends Application {
 
         showDashboard();
 
-        stage.setScene(new Scene(root, 900, 600));
+        stage.setScene(new Scene(root, 900, 750));
         stage.show();
     }
 
@@ -92,17 +100,21 @@ public class SentenceBuilderApp extends Application {
         btnGenerate = navButton("Generate");
         btnAutoComplete = navButton("Auto-complete");
         btnReports = navButton("Reports");
+        btnEdit = navButton("Edit");
+        btnLogs = navButton("Logs");
 
         btnDashboard.setOnAction(e -> showDashboard());
         btnImport.setOnAction(e -> showImport());
         btnGenerate.setOnAction(e -> showGenerate());
         btnAutoComplete.setOnAction(e -> showAutoComplete());
         btnReports.setOnAction(e -> showReports());
+        btnEdit.setOnAction(e -> showEdit());
+        btnLogs.setOnAction(e -> showLogs());
 
         sb.getChildren().addAll(
                 title, new Separator(),
                 btnDashboard, btnImport, btnGenerate,
-                btnAutoComplete, btnReports);
+                btnAutoComplete, btnReports, btnEdit, btnLogs);
         return sb;
     }
 
@@ -145,7 +157,7 @@ public class SentenceBuilderApp extends Application {
     private void setActive(Button active)
     {
         for (Button b : new Button[]{btnDashboard, btnImport, btnGenerate,
-                                      btnAutoComplete, btnReports})
+                                      btnAutoComplete, btnReports, btnEdit, btnLogs})
             b.setStyle(navStyle(false));
         active.setStyle(navStyleActive());
     }
@@ -161,13 +173,16 @@ public class SentenceBuilderApp extends Application {
 
         if (statusLabel != null)
             statusLabel.setText("Loading model into memory...");
+        logEvent("MODEL_LOAD_START", "Loading n-gram model into memory");
 
         Thread loader = new Thread(() -> {
             try {
                 sentenceBuilder.loadDatabaseIntoMemory();
                 modelLoaded = true;
+                logEvent("MODEL_LOAD_DONE", "Model load complete");
                 Platform.runLater(onReady);
             } catch (SQLException e) {
+                logEvent("MODEL_LOAD_ERROR", e.getMessage());
                 Platform.runLater(() -> {
                     if (statusLabel != null)
                         statusLabel.setText("Error loading model: " + e.getMessage());
@@ -182,6 +197,7 @@ public class SentenceBuilderApp extends Application {
     private void showDashboard() 
     {
         setActive(btnDashboard);
+        logEvent("VIEW_DASHBOARD", "Opened dashboard");
 
         VBox page = new VBox(20);
         page.setPadding(new Insets(25));
@@ -211,7 +227,7 @@ public class SentenceBuilderApp extends Application {
                 long tw = dbMan.getTotalWords();
                 long uw = dbMan.getUniqueWords();
                 long fc = dbMan.numImportedFiles();
-                List<FileRow> rows = toFileRows(dbMan.getImportedFiles(10));
+                List<FileRow> rows = toFileRows(dbMan.getImportedFiles(10), true);
                 Platform.runLater(() -> {
                     totalWordsLabel.setText(String.format("%,d", tw));
                     uniqueWordsLabel.setText(String.format("%,d", uw));
@@ -327,6 +343,7 @@ public class SentenceBuilderApp extends Application {
             }
 
             List<File> filesToParse = new ArrayList<>(selectedFiles);
+            logEvent("IMPORT_START", "Queued files: " + filesToParse.size());
             parseBtn.setDisable(true);
             browseBtn.setDisable(true);
             removeBtn.setDisable(true);
@@ -345,6 +362,8 @@ public class SentenceBuilderApp extends Application {
                     Platform.runLater(() -> {
                         statusLabel.setText(CorpusParser.cancelRequested
                                 ? "Import cancelled." : "Import complete!");
+                        logEvent(CorpusParser.cancelRequested ? "IMPORT_CANCELLED" : "IMPORT_DONE",
+                                CorpusParser.cancelRequested ? "User cancelled import" : "Import completed");
                         selectedFiles.clear();
                         pendingList.getItems().clear();
                         selectedLabel.setText("No files selected.");
@@ -355,6 +374,7 @@ public class SentenceBuilderApp extends Application {
                         loadImportHistory(historyTable);
                     });
                 } catch (Exception ex) {
+                    logEvent("IMPORT_ERROR", ex.getMessage());
                     Platform.runLater(() -> {
                         statusLabel.setText("Error: " + ex.getMessage());
                         parseBtn.setDisable(false);
@@ -369,6 +389,7 @@ public class SentenceBuilderApp extends Application {
 
         cancelBtn.setOnAction(e -> {
             CorpusParser.cancelRequested = true;
+            logEvent("IMPORT_CANCEL_REQUEST", "Cancellation requested");
             cancelBtn.setDisable(true);
             statusLabel.setText("Cancelling — finishing current batch...");
         });
@@ -393,6 +414,7 @@ public class SentenceBuilderApp extends Application {
     private void showGenerate() 
     {
         setActive(btnGenerate);
+        logEvent("VIEW_GENERATE", "Opened generate tab");
 
         VBox page = new VBox(15);
         page.setPadding(new Insets(25));
@@ -422,6 +444,22 @@ public class SentenceBuilderApp extends Application {
         HBox sliderRow = new HBox(10, randomSlider, randomValue);
         sliderRow.setAlignment(Pos.CENTER_LEFT);
 
+        Label lengthLabel = new Label("Generation length (words added)");
+        lengthLabel.setStyle("-fx-font-size: 13px; -fx-text-fill: #666666;");
+        Spinner<Integer> lengthSpinner = new Spinner<>(1, 50, 15);
+        lengthSpinner.setEditable(true);
+        lengthSpinner.setMaxWidth(120);
+
+        CheckBox rememberInputBox = new CheckBox("Remember New Input");
+        rememberInputBox.setSelected(true);
+
+        Label learningLabel = new Label("Learning strength");
+        learningLabel.setStyle("-fx-font-size: 13px; -fx-text-fill: #666666;");
+        ComboBox<String> learningBox = new ComboBox<>();
+        learningBox.getItems().addAll("Gentle", "Balanced", "Strong");
+        learningBox.setValue("Balanced");
+        learningBox.setMaxWidth(140);
+
         // Generate button
         Button generateBtn = new Button("Generate");
         generateBtn.setStyle("-fx-background-color: #2E5090; -fx-text-fill: white; -fx-padding: 7 16 7 16;");
@@ -443,7 +481,7 @@ public class SentenceBuilderApp extends Application {
         resultBox.setVisible(false);
 
         // History of generated sentences
-        Label histLabel = new Label("Generated sentences this session");
+        Label histLabel = new Label("Generated sentence history");
         histLabel.setStyle("-fx-font-size: 13px; -fx-text-fill: #666666;");
         ListView<String> histList = new ListView<>();
         histList.setPrefHeight(160);
@@ -453,10 +491,14 @@ public class SentenceBuilderApp extends Application {
                 heading,
                 startLabel, startField,
                 randomLabel, sliderRow,
+                lengthLabel, lengthSpinner,
+                rememberInputBox,
+                learningLabel, learningBox,
                 generateBtn, statusLabel, resultBox,
                 histLabel, histList);
 
         contentArea.getChildren().setAll(page);
+        loadGenerationHistory(histList, statusLabel);
 
         generateBtn.setOnAction(e -> {
             String startWord = startField.getText().trim().toLowerCase();
@@ -467,6 +509,11 @@ public class SentenceBuilderApp extends Application {
 
             int pool = (int) randomSlider.getValue();
             sentenceBuilder.randomnessPool = pool;
+            int generationLength = lengthSpinner.getValue();
+            boolean rememberNewInput = rememberInputBox.isSelected();
+            SentenceBuilder.LearningStrength learningStrength = mapLearningStrength(learningBox.getValue());
+            logEvent("GENERATE_REQUEST",
+                    "start=" + startWord + ", len=" + generationLength + ", remember=" + rememberNewInput);
 
             generateBtn.setDisable(true);
             statusLabel.setText("Generating...");
@@ -475,11 +522,25 @@ public class SentenceBuilderApp extends Application {
             ensureModelLoaded(() -> {
                 // Run generation on a background thread so UI stays responsive
                 Thread genThread = new Thread(() -> {
-                    String sentence = String.join(" ", sentenceBuilder.runGeneration(startWord));
+                    List<String> generatedWords = sentenceBuilder.runGeneration(
+                            startWord, generationLength, rememberNewInput, learningStrength);
+                    if (generatedWords == null || generatedWords.isEmpty()) {
+                        Platform.runLater(() -> {
+                            statusLabel.setText("Could not generate a sentence.");
+                            generateBtn.setDisable(false);
+                        });
+                        return;
+                    }
+                    String sentence = String.join(" ", generatedWords);
+                    if (!sentence.matches(".*[.!?]$")) {
+                        sentence = sentence + ".";
+                    }
+                    final String sentenceToShow = sentence;
                     Platform.runLater(() -> {
-                        resultLabel.setText(sentence);
+                        resultLabel.setText(sentenceToShow);
                         resultBox.setVisible(true);
-                        histList.getItems().add(0, sentence);
+                        histList.getItems().add(0, sentenceToShow);
+                        logEvent("GENERATE_RESULT", sentenceToShow);
                         statusLabel.setText("");
                         generateBtn.setDisable(false);
                     });
@@ -506,9 +567,19 @@ public class SentenceBuilderApp extends Application {
         heading.setStyle("-fx-font-size: 20px; -fx-font-weight: bold;");
 
         Label instructions = new Label(
-                "Type your sentence. Suggestions appear each time you press Space.");
+                "Type your sentence. Suggestions appear each time you press Space or comma.");
         instructions.setStyle("-fx-font-size: 13px; -fx-text-fill: #666666;");
         instructions.setWrapText(true);
+
+        CheckBox rememberInputBox = new CheckBox("Remember New Input");
+        rememberInputBox.setSelected(true);
+
+        Label learningLabel = new Label("Learning strength");
+        learningLabel.setStyle("-fx-font-size: 13px; -fx-text-fill: #666666;");
+        ComboBox<String> learningBox = new ComboBox<>();
+        learningBox.getItems().addAll("Gentle", "Balanced", "Strong");
+        learningBox.setValue("Balanced");
+        learningBox.setMaxWidth(140);
 
         // Main text input
         TextArea inputArea = new TextArea();
@@ -527,7 +598,9 @@ public class SentenceBuilderApp extends Application {
         Label statusLabel = new Label("");
         statusLabel.setStyle("-fx-font-size: 13px; -fx-text-fill: #888888;");
 
-        page.getChildren().addAll(heading, instructions, inputArea, suggestLabel, chipsBox, statusLabel);
+        page.getChildren().addAll(
+                heading, instructions, rememberInputBox, learningLabel, learningBox,
+                inputArea, suggestLabel, chipsBox, statusLabel);
         contentArea.getChildren().setAll(page);
 
         // Load model then attach the space listener
@@ -535,35 +608,34 @@ public class SentenceBuilderApp extends Application {
             statusLabel.setText("");
 
             inputArea.setOnKeyReleased(event -> {
-                if (event.getCode() != KeyCode.SPACE) return;
-
                 String text = inputArea.getText();
                 if (text.isBlank()) {
                     chipsBox.getChildren().clear();
                     return;
                 }
 
-                // Get all words typed so far (trim trailing space)
-                String[] words = text.trim().split("\\s+");
-                if (words.length == 0) return;
-
-                List<String> suggestions = new ArrayList<>();
-
-                // Try trigram first (needs at least 2 words)
-                if (words.length >= 2) {
-                    String key = words[words.length - 2] + " " + words[words.length - 1];
-                    suggestions = sentenceBuilder.trigramMap.getOrDefault(key, new ArrayList<>());
+                if (text.matches("(?s).*[.!?]\\s*$")) {
+                    String finalInput = text.trim().toLowerCase();
+                    if (rememberInputBox.isSelected() && !finalInput.isEmpty() && !finalInput.equals(lastRememberedAutocompleteInput)) {
+                        sentenceBuilder.rememberUserInput(finalInput, mapLearningStrength(learningBox.getValue()));
+                        lastRememberedAutocompleteInput = finalInput;
+                    }
+                    if (!finalInput.isEmpty() && !finalInput.equals(lastLoggedAutocompleteInput)) {
+                        try {
+                            dbMan.logUserActivity("AUTOCOMPLETE", finalInput);
+                            lastLoggedAutocompleteInput = finalInput;
+                        } catch (SQLException ignored) {
+                        }
+                    }
+                    // Terminal punctuation starts a new sentence context for the next query.
+                    chipsBox.getChildren().clear();
                 }
 
-                // Fall back to bigram
-                if (suggestions.isEmpty()) {
-                    String key = words[words.length - 1];
-                    suggestions = sentenceBuilder.bigramMap.getOrDefault(key, new ArrayList<>());
-                }
+                boolean triggerOnSpace = event.getCode() == KeyCode.SPACE;
+                boolean triggerOnComma = ",".equals(event.getText());
+                if (!triggerOnSpace && !triggerOnComma) return;
 
-                // Fall back to sentence starters if still nothing
-                if (suggestions.isEmpty())
-                    suggestions = sentenceBuilder.sentenceStarters;
+                List<String> suggestions = sentenceBuilder.getSuggestionsForInput(text);
 
                 // Show up to 5 suggestions
                 List<String> top = suggestions.subList(0, Math.min(5, suggestions.size()));
@@ -594,15 +666,7 @@ public class SentenceBuilderApp extends Application {
 
                         // Immediately re-suggest for the word just inserted
                         String[] updated = inputArea.getText().trim().split("\\s+");
-                        List<String> next = new ArrayList<>();
-                        if (updated.length >= 2) {
-                            String key = updated[updated.length - 2] + " " + updated[updated.length - 1];
-                            next = sentenceBuilder.trigramMap.getOrDefault(key, new ArrayList<>());
-                        }
-                        if (next.isEmpty() && updated.length >= 1) {
-                            next = sentenceBuilder.bigramMap.getOrDefault(
-                                    updated[updated.length - 1], new ArrayList<>());
-                        }
+                        List<String> next = sentenceBuilder.getSuggestionsForInput(String.join(" ", updated));
                         if (!next.isEmpty()) {
                             List<String> nextTop = next.subList(0, Math.min(5, next.size()));
                             for (String s : nextTop) {
@@ -630,6 +694,8 @@ public class SentenceBuilderApp extends Application {
 
         Label sortLabel = new Label("Sort by:");
         sortLabel.setStyle("-fx-font-size: 13px; -fx-text-fill: #666666;");
+        Label scopeLabel = new Label("Scope:");
+        scopeLabel.setStyle("-fx-font-size: 13px; -fx-text-fill: #666666;");
 
         ComboBox<Reporter.SortType> sortBox = new ComboBox<>();
         sortBox.getItems().addAll(Reporter.SortType.values());
@@ -652,7 +718,28 @@ public class SentenceBuilderApp extends Application {
         sortBox.setValue(reporter.getSortType());
         sortBox.setStyle("-fx-font-size: 13px;");
 
-        HBox sortRow = new HBox(10, sortLabel, sortBox);
+        ComboBox<Reporter.ScopeType> scopeBox = new ComboBox<>();
+        scopeBox.getItems().addAll(Reporter.ScopeType.values());
+        scopeBox.setCellFactory(lv -> new ListCell<>() {
+            @Override protected void updateItem(Reporter.ScopeType item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty || item == null ? "" : item.displayName());
+            }
+        });
+        scopeBox.setButtonCell(new ListCell<>() {
+            @Override
+            protected void updateItem(Reporter.ScopeType item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty || item == null ? "" : item.displayName());
+            }
+        });
+        scopeBox.setValue(reporter.getScopeType());
+        scopeBox.setStyle("-fx-font-size: 13px;");
+
+        Button exportBtn = new Button("Export CSV");
+        exportBtn.setStyle("-fx-padding: 6 12 6 12;");
+
+        HBox sortRow = new HBox(10, sortLabel, sortBox, scopeLabel, scopeBox, exportBtn);
         sortRow.setAlignment(Pos.CENTER_LEFT);
 
         Label statusLabel = new Label("Loading...");
@@ -665,23 +752,50 @@ public class SentenceBuilderApp extends Application {
 
         TableColumn<WordRow, String> colWord = new TableColumn<>("Word");
         TableColumn<WordRow, String> colTotal = new TableColumn<>("Frequency");
+        TableColumn<WordRow, String> colStart = new TableColumn<>("Starts");
+        TableColumn<WordRow, String> colEnd = new TableColumn<>("Ends");
+        TableColumn<WordRow, String> colBoostTotal = new TableColumn<>("Boost Total");
+        TableColumn<WordRow, String> colBoostStart = new TableColumn<>("Boost Starts");
+        TableColumn<WordRow, String> colEffectiveTotal = new TableColumn<>("Effective Total");
 
         colWord.setCellValueFactory(d ->
                 new javafx.beans.property.SimpleStringProperty(d.getValue().word));
         colTotal.setCellValueFactory(d ->
                 new javafx.beans.property.SimpleStringProperty(d.getValue().total));
+        colStart.setCellValueFactory(d ->
+                new javafx.beans.property.SimpleStringProperty(d.getValue().starts));
+        colEnd.setCellValueFactory(d ->
+                new javafx.beans.property.SimpleStringProperty(d.getValue().ends));
+        colBoostTotal.setCellValueFactory(d ->
+                new javafx.beans.property.SimpleStringProperty(d.getValue().boostTotal));
+        colBoostStart.setCellValueFactory(d ->
+                new javafx.beans.property.SimpleStringProperty(d.getValue().boostStarts));
+        colEffectiveTotal.setCellValueFactory(d ->
+                new javafx.beans.property.SimpleStringProperty(d.getValue().effectiveTotal));
 
         colWord.setPrefWidth(220);
         colTotal.setPrefWidth(120);
+        colStart.setPrefWidth(100);
+        colEnd.setPrefWidth(100);
+        colBoostTotal.setPrefWidth(110);
+        colBoostStart.setPrefWidth(110);
+        colEffectiveTotal.setPrefWidth(130);
 
         table.getColumns().add(colWord);
         table.getColumns().add(colTotal);
+        table.getColumns().add(colStart);
+        table.getColumns().add(colEnd);
+        table.getColumns().add(colBoostTotal);
+        table.getColumns().add(colBoostStart);
+        table.getColumns().add(colEffectiveTotal);
         page.getChildren().addAll(heading, sortRow, statusLabel, table);
         contentArea.getChildren().setAll(page);
 
         Runnable loadData = () -> {
             Reporter.SortType selected = sortBox.getValue();
             reporter.setSortType(selected);
+            Reporter.ScopeType scope = scopeBox.getValue();
+            reporter.setScopeType(scope);
             statusLabel.setText("Loading...");
             table.getItems().clear();
 
@@ -698,7 +812,12 @@ public class SentenceBuilderApp extends Application {
                 for (Word w : words) 
                     rows.add(new WordRow(
                                 w.word, 
-                                String.format("%,d", w.totalCount)));
+                                String.format("%,d", w.totalCount),
+                                String.format("%,d", w.startCount),
+                                String.format("%,d", w.endCount),
+                                String.format("%,d", w.boostTotalCount),
+                                String.format("%,d", w.boostStartCount),
+                                String.format("%,d", w.effectiveTotalCount)));
 
                 Platform.runLater(() -> {
                     table.getItems().setAll(rows);
@@ -710,13 +829,256 @@ public class SentenceBuilderApp extends Application {
         };
 
         sortBox.setOnAction(e -> loadData.run());
+        scopeBox.setOnAction(e -> loadData.run());
+        exportBtn.setOnAction(e -> {
+            FileChooser chooser = new FileChooser();
+            chooser.setTitle("Save report as CSV");
+            chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("CSV files (*.csv)", "*.csv"));
+            chooser.setInitialFileName("sentence-builder-report.csv");
+            File file = chooser.showSaveDialog(primaryStage);
+            if (file == null) return;
+
+            try {
+                exportWordRowsToCsv(file, table.getItems());
+                logEvent("REPORT_EXPORT", "rows=" + table.getItems().size() + ", file=" + file.getAbsolutePath());
+                statusLabel.setText("Exported " + table.getItems().size() + " rows to " + file.getName());
+            } catch (IOException ex) {
+                logEvent("REPORT_EXPORT_ERROR", ex.getMessage());
+                statusLabel.setText("Export failed: " + ex.getMessage());
+            }
+        });
         loadData.run();
+    }
+
+    private void showEdit() {
+        setActive(btnEdit);
+        // View-level event for user workflow auditing in the Logs tab.
+        logEvent("VIEW_EDIT", "Opened edit tab");
+
+        VBox page = new VBox(12);
+        page.setPadding(new Insets(25));
+
+        Label heading = new Label("Edit Word Frequencies");
+        heading.setStyle("-fx-font-size: 20px; -fx-font-weight: bold;");
+        Label note = new Label("Update counts while preserving effective total (total + boost total).");
+        note.setStyle("-fx-font-size: 13px; -fx-text-fill: #666666;");
+        note.setWrapText(true);
+
+        TextField wordField = new TextField();
+        wordField.setPromptText("Enter word to edit");
+        wordField.setMaxWidth(260);
+        Button lookupBtn = new Button("Lookup");
+        HBox lookupRow = new HBox(10, wordField, lookupBtn);
+        lookupRow.setAlignment(Pos.CENTER_LEFT);
+
+        TextField totalField = new TextField();
+        TextField startField = new TextField();
+        TextField endField = new TextField();
+        TextField boostTotalField = new TextField();
+        TextField boostStartField = new TextField();
+        TextField effectiveField = new TextField();
+        boostTotalField.setEditable(false);
+        effectiveField.setEditable(false);
+
+        GridPane grid = new GridPane();
+        grid.setHgap(10);
+        grid.setVgap(8);
+        grid.addRow(0, new Label("Total count"), totalField);
+        grid.addRow(1, new Label("Start count"), startField);
+        grid.addRow(2, new Label("End count"), endField);
+        grid.addRow(3, new Label("Boost total"), boostTotalField);
+        grid.addRow(4, new Label("Boost starts"), boostStartField);
+        grid.addRow(5, new Label("Effective total"), effectiveField);
+
+        Button saveBtn = new Button("Save");
+        saveBtn.setDisable(true);
+        Label statusLabel = new Label("");
+        statusLabel.setStyle("-fx-font-size: 13px; -fx-text-fill: #888888;");
+        HBox actionRow = new HBox(10, saveBtn, statusLabel);
+        actionRow.setAlignment(Pos.CENTER_LEFT);
+
+        page.getChildren().addAll(heading, note, lookupRow, grid, actionRow);
+        contentArea.getChildren().setAll(page);
+
+        final String[] selectedWord = {null};
+
+        Runnable clearFields = () -> {
+            totalField.clear();
+            startField.clear();
+            endField.clear();
+            boostTotalField.clear();
+            boostStartField.clear();
+            effectiveField.clear();
+        };
+
+        lookupBtn.setOnAction(e -> {
+            String word = wordField.getText().trim().toLowerCase();
+            if (word.isEmpty()) {
+                statusLabel.setText("Enter a word to lookup.");
+                saveBtn.setDisable(true);
+                clearFields.run();
+                return;
+            }
+            try {
+                Word row = dbMan.getWordByText(word);
+                if (row == null) {
+                    statusLabel.setText("Word not found.");
+                    saveBtn.setDisable(true);
+                    selectedWord[0] = null;
+                    clearFields.run();
+                    return;
+                }
+                selectedWord[0] = row.word;
+                totalField.setText(String.valueOf(row.totalCount));
+                startField.setText(String.valueOf(row.startCount));
+                endField.setText(String.valueOf(row.endCount));
+                boostTotalField.setText(String.valueOf(row.boostTotalCount));
+                boostStartField.setText(String.valueOf(row.boostStartCount));
+                effectiveField.setText(String.valueOf(row.effectiveTotalCount));
+                statusLabel.setText("Loaded: " + row.word);
+                saveBtn.setDisable(false);
+                // Logged to preserve a trace of manual data-access actions.
+                logEvent("EDIT_LOOKUP", row.word);
+            } catch (SQLException ex) {
+                statusLabel.setText("Lookup failed: " + ex.getMessage());
+                saveBtn.setDisable(true);
+            }
+        });
+
+        saveBtn.setOnAction(e -> {
+            if (selectedWord[0] == null) return;
+            try {
+                int total = Integer.parseInt(totalField.getText().trim());
+                int start = Integer.parseInt(startField.getText().trim());
+                int end = Integer.parseInt(endField.getText().trim());
+                int boostStart = Integer.parseInt(boostStartField.getText().trim());
+
+                dbMan.updateWordCountsPreserveEffective(selectedWord[0], total, start, end, boostStart);
+                Word updated = dbMan.getWordByText(selectedWord[0]);
+                boostTotalField.setText(String.valueOf(updated.boostTotalCount));
+                effectiveField.setText(String.valueOf(updated.effectiveTotalCount));
+                statusLabel.setText("Saved.");
+                modelLoaded = false; // reload in-memory model on next generate/autocomplete usage
+                logEvent("EDIT_SAVE",
+                        selectedWord[0] + " total=" + updated.totalCount + " start=" + updated.startCount +
+                                " end=" + updated.endCount + " boostStart=" + updated.boostStartCount);
+            } catch (NumberFormatException ex) {
+                statusLabel.setText("Enter valid integer values.");
+            } catch (SQLException ex) {
+                statusLabel.setText("Save failed: " + ex.getMessage());
+            }
+        });
+
+        wordField.setOnKeyPressed(e -> {
+            if (e.getCode() == KeyCode.ENTER) lookupBtn.fire();
+        });
+    }
+
+    private void showLogs() {
+        setActive(btnLogs);
+
+        VBox page = new VBox(15);
+        page.setPadding(new Insets(25));
+
+        Label heading = new Label("Application Logs");
+        heading.setStyle("-fx-font-size: 20px; -fx-font-weight: bold;");
+
+        Label filterLabel = new Label("Activity type:");
+        filterLabel.setStyle("-fx-font-size: 13px; -fx-text-fill: #666666;");
+        ComboBox<String> typeBox = new ComboBox<>();
+        typeBox.getItems().add("ALL");
+        typeBox.setValue("ALL");
+        typeBox.setStyle("-fx-font-size: 13px;");
+
+        Button refreshBtn = new Button("Refresh");
+        refreshBtn.setStyle("-fx-padding: 6 12 6 12;");
+
+        HBox controls = new HBox(10, filterLabel, typeBox, refreshBtn);
+        controls.setAlignment(Pos.CENTER_LEFT);
+
+        Label statusLabel = new Label("Loading...");
+        statusLabel.setStyle("-fx-font-size: 13px; -fx-text-fill: #888888;");
+
+        TableView<LogRow> table = new TableView<>();
+        table.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
+        VBox.setVgrow(table, Priority.ALWAYS);
+        table.setPlaceholder(new Label("No logs found."));
+
+        TableColumn<LogRow, String> colTime = new TableColumn<>("Timestamp");
+        TableColumn<LogRow, String> colType = new TableColumn<>("Type");
+        TableColumn<LogRow, String> colContent = new TableColumn<>("Content");
+        colTime.setCellValueFactory(d -> new javafx.beans.property.SimpleStringProperty(d.getValue().time));
+        colType.setCellValueFactory(d -> new javafx.beans.property.SimpleStringProperty(d.getValue().type));
+        colContent.setCellValueFactory(d -> new javafx.beans.property.SimpleStringProperty(d.getValue().content));
+        colTime.setPrefWidth(170);
+        colType.setPrefWidth(150);
+        colContent.setPrefWidth(500);
+        table.getColumns().add(colTime);
+        table.getColumns().add(colType);
+        table.getColumns().add(colContent);
+
+        page.getChildren().addAll(heading, controls, statusLabel, table);
+        contentArea.getChildren().setAll(page);
+
+        Runnable loadTypes = () -> {
+            Thread t = new Thread(() -> {
+                try {
+                    List<String> types = dbMan.getUserHistoryActivityTypes();
+                    Platform.runLater(() -> {
+                        String current = typeBox.getValue();
+                        typeBox.getItems().setAll("ALL");
+                        typeBox.getItems().addAll(types);
+                        if (current != null && typeBox.getItems().contains(current)) {
+                            typeBox.setValue(current);
+                        } else {
+                            typeBox.setValue("ALL");
+                        }
+                    });
+                } catch (SQLException ignored) {
+                }
+            });
+            t.setDaemon(true);
+            t.start();
+        };
+
+        Runnable loadLogs = () -> {
+            statusLabel.setText("Loading...");
+            table.getItems().clear();
+            Thread t = new Thread(() -> {
+                try {
+                    String selected = typeBox.getValue();
+                    String filter = (selected == null || "ALL".equals(selected)) ? null : selected;
+                    List<DBMan.UserHistoryEntry> rows = dbMan.getUserHistory(500, filter);
+                    List<LogRow> mapped = new ArrayList<>();
+                    for (DBMan.UserHistoryEntry e : rows) {
+                        mapped.add(new LogRow(e.createdAt, e.activityType, e.content));
+                    }
+                    Platform.runLater(() -> {
+                        table.getItems().setAll(mapped);
+                        statusLabel.setText(String.format("%,d logs", mapped.size()));
+                    });
+                } catch (SQLException e) {
+                    Platform.runLater(() -> statusLabel.setText("Error loading logs."));
+                }
+            });
+            t.setDaemon(true);
+            t.start();
+        };
+
+        refreshBtn.setOnAction(e -> {
+            loadTypes.run();
+            loadLogs.run();
+        });
+        typeBox.setOnAction(e -> loadLogs.run());
+
+        loadTypes.run();
+        loadLogs.run();
     }
 
 
 
     // Helper so chip click logic isn't duplicatedMarket
-    private Button chipButton(String word, TextArea inputArea, HBox chipsBox) 
+    private Button chipButton(String word, TextArea inputArea, HBox chipsBox)
     {
         Button chip = new Button(word);
         chip.setStyle(
@@ -734,6 +1096,13 @@ public class SentenceBuilderApp extends Application {
                     : current + " " + word + " ");
             inputArea.positionCaret(inputArea.getText().length());
             chipsBox.getChildren().clear();
+
+            List<String> next = sentenceBuilder.getSuggestionsForInput(inputArea.getText());
+            if (!next.isEmpty()) {
+                for (String s : next.subList(0, Math.min(5, next.size()))) {
+                    chipsBox.getChildren().add(chipButton(s, inputArea, chipsBox));
+                }
+            }
         });
         return chip;
     }
@@ -769,11 +1138,22 @@ public class SentenceBuilderApp extends Application {
 
     private List<FileRow> toFileRows(List<ImportedFile> files) 
     {
+        return toFileRows(files, false);
+    }
+
+    private List<FileRow> toFileRows(List<ImportedFile> files, boolean truncateNames) 
+    {
         List<FileRow> rows = new ArrayList<>();
         for (ImportedFile f : files)
-            rows.add(new FileRow(f.fileName,
+            rows.add(new FileRow(truncateNames ? truncateTail(f.fileName, 25) : f.fileName,
                     String.format("%,d", f.wordCount), f.importDate));
         return rows;
+    }
+
+    private String truncateTail(String value, int keepTailChars) {
+        if (value == null) return "";
+        if (keepTailChars <= 0 || value.length() <= keepTailChars) return value;
+        return "..." + value.substring(value.length() - keepTailChars);
     }
 
     private VBox statCard(String labelText, Label valueLabel) 
@@ -798,6 +1178,67 @@ public class SentenceBuilderApp extends Application {
         return l;
     }
 
+    private SentenceBuilder.LearningStrength mapLearningStrength(String uiValue) {
+        if (uiValue == null) return SentenceBuilder.LearningStrength.BALANCED;
+        return switch (uiValue) {
+            case "Gentle" -> SentenceBuilder.LearningStrength.GENTLE;
+            case "Strong" -> SentenceBuilder.LearningStrength.STRONG;
+            default -> SentenceBuilder.LearningStrength.BALANCED;
+        };
+    }
+
+    private void exportWordRowsToCsv(File file, List<WordRow> rows) throws IOException {
+        try (PrintWriter writer = new PrintWriter(new FileWriter(file))) {
+            writer.println("word,total_count,start_count,end_count,boost_total_count,boost_start_count,effective_total_count");
+            for (WordRow row : rows) {
+                writer.println(String.join(",",
+                        csvEscape(row.word),
+                        row.totalRaw,
+                        row.startsRaw,
+                        row.endsRaw,
+                        row.boostTotalRaw,
+                        row.boostStartsRaw,
+                        row.effectiveTotalRaw));
+            }
+        }
+    }
+
+    private void loadGenerationHistory(ListView<String> histList, Label statusLabel) {
+        Thread t = new Thread(() -> {
+            try {
+                List<DBMan.UserHistoryEntry> rows = dbMan.getUserHistory(300, "GENERATION");
+                List<String> sentences = new ArrayList<>();
+                for (DBMan.UserHistoryEntry e : rows) {
+                    if (e.content != null && !e.content.isBlank()) {
+                        sentences.add(e.content);
+                    }
+                }
+                Platform.runLater(() -> histList.getItems().setAll(sentences));
+            } catch (SQLException e) {
+                Platform.runLater(() -> statusLabel.setText("Could not load generation history."));
+            }
+        });
+        t.setDaemon(true);
+        t.start();
+    }
+
+    private void logEvent(String activityType, String content) {
+        // Thin UI wrapper around DB logging so every tab can emit consistent audit events.
+        try {
+            dbMan.logUserActivity(activityType, content);
+        } catch (SQLException ignored) {
+        }
+    }
+
+    private String csvEscape(String value) {
+        if (value == null) return "";
+        String escaped = value.replace("\"", "\"\"");
+        if (escaped.contains(",") || escaped.contains("\"") || escaped.contains("\n")) {
+            return "\"" + escaped + "\"";
+        }
+        return escaped;
+    }
+
     public static class FileRow 
     {
         String name, words, date;
@@ -808,9 +1249,28 @@ public class SentenceBuilderApp extends Application {
 
     public static class WordRow 
     {
-        String word, total;
-        WordRow(String word, String total) {
+        String word, total, starts, ends, boostTotal, boostStarts, effectiveTotal;
+        String totalRaw, startsRaw, endsRaw, boostTotalRaw, boostStartsRaw, effectiveTotalRaw;
+        WordRow(String word, String total, String starts, String ends,
+                String boostTotal, String boostStarts, String effectiveTotal) {
             this.word = word; this.total = total;
+            this.starts = starts; this.ends = ends;
+            this.boostTotal = boostTotal; this.boostStarts = boostStarts; this.effectiveTotal = effectiveTotal;
+            this.totalRaw = total.replace(",", "");
+            this.startsRaw = starts.replace(",", "");
+            this.endsRaw = ends.replace(",", "");
+            this.boostTotalRaw = boostTotal.replace(",", "");
+            this.boostStartsRaw = boostStarts.replace(",", "");
+            this.effectiveTotalRaw = effectiveTotal.replace(",", "");
+        }
+    }
+
+    public static class LogRow {
+        String time, type, content;
+        LogRow(String time, String type, String content) {
+            this.time = time;
+            this.type = type;
+            this.content = content;
         }
     }
 
