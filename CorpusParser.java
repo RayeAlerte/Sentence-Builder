@@ -14,25 +14,30 @@ public class CorpusParser {
 
     private static final int BATCH_SIZE_LIMIT = 5000;
 
-    //
     private Consumer<String> onProgress = null;
-
+    private Consumer<Double> onProgressNumeric = null;
 
     public CorpusParser(DBMan dbMan) {
         this.dbMan = dbMan;
     }
 
-
-    public void setOnProgress(Consumer<String> callback)
-    {
+    public void setOnProgress(Consumer<String> callback) {
         this.onProgress = callback;
     }
 
-    private void reportProgress(String message)
-    {
-        if (onProgress != null)
-        {
+    public void setOnProgressNumeric(Consumer<Double> callback) {
+        this.onProgressNumeric = callback;
+    }
+
+    private void reportProgress(String message) {
+        if (onProgress != null) {
             onProgress.accept(message);
+        }
+    }
+
+    private void reportProgressNumeric(double fraction) {
+        if (onProgressNumeric != null) {
+            onProgressNumeric.accept(fraction);
         }
     }
 
@@ -116,6 +121,8 @@ public class CorpusParser {
     }
 
     private void processFile(File file, boolean isGutenbergFile) {
+        long fileSize = file.length();
+        long bytesRead = 0;
         int wordCount = 0;
         int batchCounter = 0;
         String w1 = null;
@@ -132,6 +139,7 @@ public class CorpusParser {
             boolean readActive = !(isGutenbergFile && processGutenbergMarkers);
 
             while ((line = br.readLine()) != null) {
+                bytesRead += line.length() + 1; // +1 for newline
                 if (cancelRequested)
                     break;
 
@@ -232,6 +240,8 @@ public class CorpusParser {
 
                         final int wc = wordCount;
                         reportProgress("Parsing " + file.getName() + " - " + String.format("%,d", wc) + " words processed...");
+                        if (fileSize > 0)
+                            reportProgressNumeric((double) bytesRead / fileSize);
                     }
                 }
             }
