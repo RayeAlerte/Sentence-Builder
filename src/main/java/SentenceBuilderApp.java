@@ -1,3 +1,30 @@
+/*******************************************************************************
+ * Written by Jonathan Rodriguez for CS4485.0W1, Sentence Builder, starting March 22, 2026.
+ * NetID: jdr220004
+ *
+ * SentenceBuilderApp.java
+ *
+ * This is the main JavaFX application class for the Sentence Builder program.
+ * It constructs the primary window, manages navigation between views, and
+ * coordinates the three core services: CorpusParser (ingesting text files),
+ * SentenceBuilder (n-gram-based generation and auto-complete), and Reporter
+ * (word-frequency queries).
+ *
+ * The UI is a single-window BorderPane with a fixed left sidebar and a
+ * swappable centre content area. Each "show" method clears the centre pane
+ * and rebuilds it for that screen. The n-gram model is loaded into memory
+ * lazily the first time Generate or Auto-complete is opened, and is
+ * invalidated whenever new corpus data is imported so the next use reloads it.
+ *
+ * Screens:
+ *   Dashboard    - corpus statistics and recent import history
+ *   Import Text  - browse, queue, and parse .txt corpus files
+ *   Generate     - produce a sentence from a starting word via n-gram model
+ *   Auto-complete - interactive next-word suggestion chips
+ *   Reports      - sortable word-frequency table with CSV export
+ *   Edit         - manually adjust word frequency counts in the database
+ *   Logs         - filterable audit log of all user activity
+ ******************************************************************************/
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
@@ -17,18 +44,20 @@ import java.util.*;
 
 public class SentenceBuilderApp extends Application {
 
-    DBMan dbMan;
-    CorpusParser corpusParser;
-    SentenceBuilder sentenceBuilder;
-    Reporter reporter;
-    Stage primaryStage;
+    DBMan dbMan;                     // database access layer
+    CorpusParser corpusParser;       // parses raw .txt files into the word/n-gram tables
+    SentenceBuilder sentenceBuilder; // generates sentences and provides autocomplete suggestions
+    Reporter reporter;               // queries word-frequency data for the Reports screen
+    Stage primaryStage;              // kept so file dialogs can be modal to the main window
 
-    // Track whether SentenceBuilder has been loaded into memory
+    // Whether the n-gram model has been loaded from the DB into memory.
+    // Loading is deferred until first use because it can be slow for large corpora.
     private boolean modelLoaded = false;
 
-    private BorderPane root;
-    private StackPane contentArea;
+    private BorderPane root;        // outer layout: sidebar left, content centre
+    private StackPane contentArea;  // centre pane — each screen replaces its single child
 
+    // Sidebar nav buttons kept as fields so setActive() can reset all of them at once.
     private Button btnDashboard;
     private Button btnImport;
     private Button btnGenerate;
@@ -36,13 +65,24 @@ public class SentenceBuilderApp extends Application {
     private Button btnReports;
     private Button btnEdit;
     private Button btnLogs;
+
+    // These track the last input that was learned / logged in the Auto-complete screen
+    // so that finishing a sentence with multiple keypresses doesn't trigger duplicate DB writes.
     private String lastRememberedAutocompleteInput = "";
     private String lastLoggedAutocompleteInput = "";
 
+    /***************************************************************************
+     * JavaFX entry point. Connects to the database, initialises the three core
+     * service objects, builds the window layout, and shows the Dashboard.
+     * If the database connection fails the app cannot run, so an error dialog
+     * is shown and the JVM exits immediately.
+     * Input:  stage - the primary Stage provided by the JavaFX runtime
+     ***************************************************************************/
     @Override
     public void start(Stage stage) {
         this.primaryStage = stage;
 
+        // Attempt DB connection first; everything else depends on it.
         dbMan = new DBMan();
         try 
         {
@@ -57,11 +97,14 @@ public class SentenceBuilderApp extends Application {
             return;
         }
 
+        // Wire up the service layer now that the DB is available.
         corpusParser = new CorpusParser(dbMan);
         reporter = new Reporter(dbMan);
         sentenceBuilder = new SentenceBuilder(dbMan, reporter);
 
         stage.setTitle("Sentence Builder");
+
+        // Cleanly close the DB connection when the user closes the window.
         stage.setOnCloseRequest(e -> {
             try {
                 dbMan.disconnect();
@@ -70,6 +113,7 @@ public class SentenceBuilderApp extends Application {
             }
         });
 
+        // Build the top-level layout: fixed sidebar on the left, swappable content in the centre.
         root = new BorderPane();
         contentArea = new StackPane();
 
@@ -83,6 +127,12 @@ public class SentenceBuilderApp extends Application {
     }
 
     // Sidebar
+    /***************************************************************************
+     * Constructs the left navigation sidebar: an app title label, a separator,
+     * and one button per screen. Each button's action swaps the centre content
+     * area to the corresponding view.
+     * Returns: VBox containing all sidebar elements
+     ***************************************************************************/
     private VBox buildSidebar() 
     {
         VBox sb = new VBox();
@@ -118,6 +168,13 @@ public class SentenceBuilderApp extends Application {
         return sb;
     }
 
+    /***************************************************************************
+     * Creates a full-width, left-aligned sidebar button with hover highlighting.
+     * Hover style is suppressed when the button is already active so the active
+     * style is not accidentally overwritten by mouse movement.
+     * Input:  label - the text displayed on the button
+     * Returns: configured Button node
+     ***************************************************************************/
     private Button navButton(String label) 
     {
         Button btn = new Button(label);
@@ -129,11 +186,25 @@ public class SentenceBuilderApp extends Application {
         return btn;
     }
 
+    /***************************************************************************
+     * Returns true if the given button is the currently active nav button.
+     * Active state is detected by the presence of bold font-weight in the
+     * button's inline style string, because JavaFX plain Buttons have no
+     * built-in selected/active state to query.
+     * Input:  btn - the sidebar button to test
+     * Returns: true if btn is currently styled as active
+     ***************************************************************************/
     private boolean isActive(Button btn) 
     {
         return btn.getStyle().contains("-fx-font-weight: bold");
     }
 
+    /***************************************************************************
+     * Returns the inline CSS string for a sidebar button in its normal or
+     * hovered state. Background colour is the only property that changes.
+     * Input:  hover - true to return the hover style, false for normal style
+     * Returns: CSS string suitable for Button.setStyle()
+     ***************************************************************************/
     private String navStyle(boolean hover) 
     {
         String bg = hover ? "#e0e0e0" : "transparent";
@@ -144,6 +215,12 @@ public class SentenceBuilderApp extends Application {
                "-fx-cursor: hand;";
     }
 
+    /***************************************************************************
+     * Returns the inline CSS string for the currently selected nav button.
+     * Bold font-weight serves double duty: it gives the visual "active" look
+     * and is the property that isActive() checks to detect the active button.
+     * Returns: CSS string suitable for Button.setStyle()
+     ***************************************************************************/
     private String navStyleActive() 
     {
         return "-fx-background-color: #ffffff;" +
@@ -154,6 +231,12 @@ public class SentenceBuilderApp extends Application {
                "-fx-cursor: hand;";
     }
 
+    /***************************************************************************
+     * Marks one nav button as active and resets all others to the default style.
+     * Must be called at the top of every showXxx() method so the sidebar always
+     * reflects which screen is currently displayed.
+     * Input:  active - the button that should appear selected
+     ***************************************************************************/
     private void setActive(Button active)
     {
         for (Button b : new Button[]{btnDashboard, btnImport, btnGenerate,
@@ -162,7 +245,16 @@ public class SentenceBuilderApp extends Application {
         active.setStyle(navStyleActive());
     }
 
-    // Model Loader: Loads bigrams/trigrams into memory once, reuses after that
+    /***************************************************************************
+     * Ensures the n-gram model is loaded into memory before running any
+     * generation or auto-complete operation. Loading is done once and cached
+     * via the modelLoaded flag; subsequent calls skip straight to onReady.
+     * Loading happens on a background thread so the UI remains responsive.
+     * Input:  onReady     - Runnable executed on the FX thread once the model
+     *                        is ready (or immediately if already loaded)
+     *         statusLabel - optional label updated with progress/error text;
+     *                        may be null if the caller has no status display
+     ***************************************************************************/
     private void ensureModelLoaded(Runnable onReady, Label statusLabel) 
     {
         if (modelLoaded) 
@@ -194,6 +286,12 @@ public class SentenceBuilderApp extends Application {
     }
 
     // Dashboard
+    /***************************************************************************
+     * Builds and displays the Dashboard screen. Shows three summary stat cards
+     * (total words, unique words, files imported) and a table of the ten most
+     * recently imported files. Stats are fetched on a background thread so the
+     * UI renders immediately with placeholder text while the DB query runs.
+     ***************************************************************************/
     private void showDashboard() 
     {
         setActive(btnDashboard);
@@ -247,6 +345,13 @@ public class SentenceBuilderApp extends Application {
     }
 
     // Import Text Screen
+    /***************************************************************************
+     * Builds and displays the Import Text screen. The user can browse for one
+     * or more .txt files, queue them in a list, then trigger parsing. Parsing
+     * runs on a background thread with live progress updates; the user can
+     * cancel mid-import. After a successful import the in-memory n-gram model
+     * is invalidated so the next Generate/Auto-complete use reloads fresh data.
+     ***************************************************************************/
     private void showImport() 
     {
         setActive(btnImport);
@@ -301,6 +406,7 @@ public class SentenceBuilderApp extends Application {
             List<File> chosen = chooser.showOpenMultipleDialog(primaryStage);
             if (chosen != null && !chosen.isEmpty()) {
                 for (File f : chosen) {
+                    // Guard against the same file being added twice via repeated Browse calls.
                     if (selectedFiles.stream().noneMatch(sf ->
                             sf.getAbsolutePath().equals(f.getAbsolutePath()))) {
                         selectedFiles.add(f);
@@ -408,6 +514,12 @@ public class SentenceBuilderApp extends Application {
         });
     }
 
+    /***************************************************************************
+     * Fetches the 20 most recently imported files from the database on a
+     * background thread and populates the given table. Called on first load and
+     * again after a successful import to keep the history current.
+     * Input:  table - the TableView<FileRow> to populate
+     ***************************************************************************/
     private void loadImportHistory(TableView<FileRow> table) 
     {
         Thread t = new Thread(() -> {
@@ -424,6 +536,14 @@ public class SentenceBuilderApp extends Application {
     }
 
     // Generate Screen
+    /***************************************************************************
+     * Builds and displays the Generate screen. The user provides a starting
+     * word, a randomness level (1 = most predictable, selects from top-N
+     * candidates), a target length in words, and an optional learning strength
+     * so new input is fed back into the n-gram model. Generation runs on a
+     * background thread. The screen also shows a scrollable history of all
+     * sentences generated in the current session.
+     ***************************************************************************/
     private void showGenerate() 
     {
         setActive(btnGenerate);
@@ -435,14 +555,12 @@ public class SentenceBuilderApp extends Application {
         Label heading = new Label("Generate Sentence");
         heading.setStyle("-fx-font-size: 20px; -fx-font-weight: bold;");
 
-        // Starting word input
         Label startLabel = new Label("Starting word");
         startLabel.setStyle("-fx-font-size: 13px; -fx-text-fill: #666666;");
         TextField startField = new TextField();
         startField.setPromptText("e.g. she");
         startField.setMaxWidth(220);
 
-        // Randomness slider
         Label randomLabel = new Label("Randomness (1 = most predictable)");
         randomLabel.setStyle("-fx-font-size: 13px; -fx-text-fill: #666666;");
         Slider randomSlider = new Slider(1, 10, sentenceBuilder.randomnessPool);
@@ -473,11 +591,9 @@ public class SentenceBuilderApp extends Application {
         learningBox.setValue("Balanced");
         learningBox.setMaxWidth(140);
 
-        // Generate button
         Button generateBtn = new Button("Generate");
         generateBtn.setStyle("-fx-background-color: #2E5090; -fx-text-fill: white; -fx-padding: 7 16 7 16;");
 
-        // Status / output area
         Label statusLabel = new Label("");
         statusLabel.setStyle("-fx-font-size: 13px; -fx-text-fill: #888888;");
 
@@ -493,7 +609,6 @@ public class SentenceBuilderApp extends Application {
                            "-fx-background-radius: 6;");
         resultBox.setVisible(false);
 
-        // History of generated sentences
         Label histLabel = new Label("Generated sentence history");
         histLabel.setStyle("-fx-font-size: 13px; -fx-text-fill: #666666;");
         ListView<String> histList = new ListView<>();
@@ -545,6 +660,7 @@ public class SentenceBuilderApp extends Application {
                         return;
                     }
                     String sentence = String.join(" ", generatedWords);
+                    // Ensure the generated sentence ends with terminal punctuation.
                     if (!sentence.matches(".*[.!?]$")) {
                         sentence = sentence + ".";
                     }
@@ -570,6 +686,14 @@ public class SentenceBuilderApp extends Application {
     }
     
     // Auto Complete Screen
+    /***************************************************************************
+     * Builds and displays the Auto-complete screen. As the user types, pressing
+     * Space or comma queries the n-gram model for the most likely next words and
+     * shows them as clickable chips. Clicking a chip appends the word and
+     * immediately re-queries for the next set of suggestions. When the user ends
+     * the sentence with terminal punctuation (. ! ?) the completed sentence is
+     * optionally fed back into the model at the chosen learning strength.
+     ***************************************************************************/
     private void showAutoComplete() {
         setActive(btnAutoComplete);
 
@@ -594,20 +718,17 @@ public class SentenceBuilderApp extends Application {
         learningBox.setValue("Balanced");
         learningBox.setMaxWidth(140);
 
-        // Main text input
         TextArea inputArea = new TextArea();
         inputArea.setPromptText("Start typing...");
         inputArea.setPrefHeight(100);
         inputArea.setWrapText(true);
 
-        // Suggestion chips row
         Label suggestLabel = new Label("Suggestions:");
         suggestLabel.setStyle("-fx-font-size: 13px; -fx-text-fill: #666666;");
 
         HBox chipsBox = new HBox(8);
         chipsBox.setAlignment(Pos.CENTER_LEFT);
 
-        // Status label for loading
         Label statusLabel = new Label("");
         statusLabel.setStyle("-fx-font-size: 13px; -fx-text-fill: #888888;");
 
@@ -629,6 +750,8 @@ public class SentenceBuilderApp extends Application {
 
                 if (text.matches("(?s).*[.!?]\\s*$")) {
                     String finalInput = text.trim().toLowerCase();
+                    // Only re-learn and re-log if the input actually changed since last time,
+                    // avoiding duplicate DB writes on repeated punctuation keystrokes.
                     if (rememberInputBox.isSelected() && !finalInput.isEmpty() && !finalInput.equals(lastRememberedAutocompleteInput)) {
                         sentenceBuilder.rememberUserInput(finalInput, mapLearningStrength(learningBox.getValue()));
                         lastRememberedAutocompleteInput = finalInput;
@@ -640,7 +763,6 @@ public class SentenceBuilderApp extends Application {
                         } catch (SQLException ignored) {
                         }
                     }
-                    // Terminal punctuation starts a new sentence context for the next query.
                     chipsBox.getChildren().clear();
                 }
 
@@ -695,6 +817,13 @@ public class SentenceBuilderApp extends Application {
         }, statusLabel);
     }
 
+    /***************************************************************************
+     * Builds and displays the Reports screen. Shows a sortable table of all
+     * words in the corpus with their raw frequency counts, boost counts, and
+     * computed effective totals. The user can change sort order and scope via
+     * dropdowns (which trigger an immediate reload), and can export the current
+     * view to a CSV file.
+     ***************************************************************************/
     private void showReports()
     {
         setActive(btnReports);
@@ -863,9 +992,16 @@ public class SentenceBuilderApp extends Application {
         loadData.run();
     }
 
+    /***************************************************************************
+     * Builds and displays the Edit screen. The user looks up a word by text,
+     * views its current counts (total, start-of-sentence, end-of-sentence,
+     * boost), edits the editable fields, and saves. Boost total and effective
+     * total are read-only because they are computed by the DB on save to
+     * preserve internal consistency. After a save the in-memory model is
+     * invalidated so generation reflects the updated counts.
+     ***************************************************************************/
     private void showEdit() {
         setActive(btnEdit);
-        // View-level event for user workflow auditing in the Logs tab.
         logEvent("VIEW_EDIT", "Opened edit tab");
 
         VBox page = new VBox(12);
@@ -950,7 +1086,6 @@ public class SentenceBuilderApp extends Application {
                 effectiveField.setText(String.valueOf(row.effectiveTotalCount));
                 statusLabel.setText("Loaded: " + row.word);
                 saveBtn.setDisable(false);
-                // Logged to preserve a trace of manual data-access actions.
                 logEvent("EDIT_LOOKUP", row.word);
             } catch (SQLException ex) {
                 statusLabel.setText("Lookup failed: " + ex.getMessage());
@@ -987,6 +1122,12 @@ public class SentenceBuilderApp extends Application {
         });
     }
 
+    /***************************************************************************
+     * Builds and displays the Logs screen. Shows a full audit log of all
+     * recorded user activity stored in the database. The user can filter by
+     * activity type via a dropdown populated dynamically from the DB, and can
+     * refresh the log at any time. Up to 500 entries are shown at once.
+     ***************************************************************************/
     private void showLogs() {
         setActive(btnLogs);
 
@@ -1090,7 +1231,19 @@ public class SentenceBuilderApp extends Application {
 
 
 
-    // Helper so chip click logic isn't duplicatedMarket
+    // Shared Helpers
+
+    /***************************************************************************
+     * Creates a styled "chip" button for a suggested next word. When clicked,
+     * the word is appended to the input area (with correct spacing) and a new
+     * round of suggestions is immediately fetched for the updated text. This
+     * method is extracted so both the initial suggestion render and the
+     * post-click re-suggest share identical appearance and behaviour.
+     * Input:  word      - the suggested word to display and insert
+     *         inputArea - the TextArea the chip will append text into
+     *         chipsBox  - the HBox whose chips are cleared and rebuilt on click
+     * Returns: a configured chip Button node
+     ***************************************************************************/
     private Button chipButton(String word, TextArea inputArea, HBox chipsBox)
     {
         Button chip = new Button(word);
@@ -1120,7 +1273,12 @@ public class SentenceBuilderApp extends Application {
         return chip;
     }
 
-    // Shared Helpers
+
+    /***************************************************************************
+     * Builds a TableView pre-configured with three columns (File name, Words,
+     * Imported date) used on both the Dashboard and Import screens.
+     * Returns: a configured TableView<FileRow>
+     ***************************************************************************/
     private TableView<FileRow> buildImportTable() 
     {
         TableView<FileRow> table = new TableView<>();
@@ -1149,11 +1307,25 @@ public class SentenceBuilderApp extends Application {
         return table;
     }
 
+    /***************************************************************************
+     * Converts a list of ImportedFile domain objects to FileRow display objects.
+     * Delegates to the two-argument overload with truncateNames = false.
+     * Input:  files - list of ImportedFile objects from the database
+     * Returns: list of FileRow objects ready for table display
+     ***************************************************************************/
     private List<FileRow> toFileRows(List<ImportedFile> files) 
     {
         return toFileRows(files, false);
     }
 
+    /***************************************************************************
+     * Converts ImportedFile domain objects to FileRow display objects.
+     * Input:  files         - list of ImportedFile objects from the database
+     *         truncateNames - if true, long file paths are shortened to their
+     *                          last 25 characters with "..." prefix so they fit
+     *                          in compact table columns (e.g., on the Dashboard)
+     * Returns: list of FileRow objects ready for table display
+     ***************************************************************************/
     private List<FileRow> toFileRows(List<ImportedFile> files, boolean truncateNames) 
     {
         List<FileRow> rows = new ArrayList<>();
@@ -1163,12 +1335,29 @@ public class SentenceBuilderApp extends Application {
         return rows;
     }
 
+    /***************************************************************************
+     * Shortens a string to its trailing keepTailChars characters, prefixing
+     * "..." to signal truncation. The tail is kept (rather than the head)
+     * because file paths are more identifiable by their filename end than by
+     * a shared directory prefix.
+     * Input:  value         - the string to potentially truncate
+     *         keepTailChars - maximum characters to preserve from the end
+     * Returns: original string if short enough, otherwise "..."+tail
+     ***************************************************************************/
     private String truncateTail(String value, int keepTailChars) {
         if (value == null) return "";
         if (keepTailChars <= 0 || value.length() <= keepTailChars) return value;
         return "..." + value.substring(value.length() - keepTailChars);
     }
 
+    /***************************************************************************
+     * Builds a small rounded stat card for the Dashboard containing a grey
+     * category label above a large bold value label.
+     * Input:  labelText  - the category name (e.g., "Total words")
+     *         valueLabel - a Label already styled as a stat value; passed in
+     *                       so the caller can update it asynchronously
+     * Returns: VBox card node
+     ***************************************************************************/
     private VBox statCard(String labelText, Label valueLabel) 
     {
         VBox card = new VBox(6);
@@ -1191,6 +1380,13 @@ public class SentenceBuilderApp extends Application {
         return l;
     }
 
+    /***************************************************************************
+     * Maps the UI combo box display string to the SentenceBuilder.LearningStrength
+     * enum used by the generation and learning methods. Defaults to BALANCED for
+     * null or unrecognised values so the app never crashes on a bad selection.
+     * Input:  uiValue - "Gentle", "Balanced", or "Strong" from the combo box
+     * Returns: corresponding LearningStrength enum constant
+     ***************************************************************************/
     private SentenceBuilder.LearningStrength mapLearningStrength(String uiValue) {
         if (uiValue == null) return SentenceBuilder.LearningStrength.BALANCED;
         return switch (uiValue) {
@@ -1200,6 +1396,14 @@ public class SentenceBuilderApp extends Application {
         };
     }
 
+    /***************************************************************************
+     * Writes the given word report rows to a CSV file. A fixed header line is
+     * written first, then one row per WordRow using the raw (unformatted) count
+     * strings so the numbers are plain integers rather than locale-formatted.
+     * Input:  file - destination file chosen by the user via FileChooser
+     *         rows - the WordRow items currently displayed in the Reports table
+     * Throws: IOException if the file cannot be written
+     ***************************************************************************/
     private void exportWordRowsToCsv(File file, List<WordRow> rows) throws IOException {
         try (PrintWriter writer = new PrintWriter(new FileWriter(file))) {
             writer.println("word,total_count,start_count,end_count,boost_total_count,boost_start_count,effective_total_count");
@@ -1216,6 +1420,12 @@ public class SentenceBuilderApp extends Application {
         }
     }
 
+    /***************************************************************************
+     * Fetches the 300 most recent generated sentences from the database on a
+     * background thread and populates the history list on the Generate screen.
+     * Input:  histList    - the ListView<String> to populate with sentences
+     *         statusLabel - label updated with an error message if the DB fails
+     ***************************************************************************/
     private void loadGenerationHistory(ListView<String> histList, Label statusLabel) {
         Thread t = new Thread(() -> {
             try {
@@ -1235,14 +1445,28 @@ public class SentenceBuilderApp extends Application {
         t.start();
     }
 
+    /***************************************************************************
+     * Records a user activity event to the database. All screens call this
+     * method so the audit log (visible in the Logs screen) is consistent.
+     * Failures are silently swallowed because a logging error should never
+     * interrupt the user's primary workflow.
+     * Input:  activityType - short category string (e.g., "IMPORT_START")
+     *         content      - human-readable detail for this event
+     ***************************************************************************/
     private void logEvent(String activityType, String content) {
-        // Thin UI wrapper around DB logging so every tab can emit consistent audit events.
         try {
             dbMan.logUserActivity(activityType, content);
         } catch (SQLException ignored) {
         }
     }
 
+    /***************************************************************************
+     * Escapes a single field value for RFC-4180 CSV output. Any field that
+     * contains a comma, double-quote, or newline is wrapped in double-quotes;
+     * existing double-quotes within the value are doubled per the CSV spec.
+     * Input:  value - the raw field string to escape
+     * Returns: escaped string safe to write directly into a CSV line
+     ***************************************************************************/
     private String csvEscape(String value) {
         if (value == null) return "";
         String escaped = value.replace("\"", "\"\"");
