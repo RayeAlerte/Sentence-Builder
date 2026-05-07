@@ -16,7 +16,8 @@ Sentence Builder is a JavaFX application that parses large text corpora into an 
 - **Core tables:** `WordCorpus`, `Bigrams`, `Trigrams`, `ImportedFiles`, `UserHistory`
 - **Migrations:** SQL files in `migrations/` applied on startup
 - **Tokenizer:** shared `Tokenizer.java` used by parser + live user input paths
-- **Tests:** JUnit testing framework
+- **Build:** Maven (`pom.xml`)
+- **Tests:** JUnit 5 (Jupiter)
 
 ## Key Features
 
@@ -102,36 +103,34 @@ This defines behavior for contractions, smart punctuation, unicode normalization
 
 ## Environment Setup
 
-Create `.env` in project root:
+Requires **Java 21** and **Maven** installed.
 
+To verify your setup:
 ```bash
-FX=path to JavaFX /lib
-MYSQL=path to mysql-connector-j-version.jar
-MYSQLITE= path to sqlite-jdbc-version.jar
+mvn -v
+java -version
 ```
-
-Notes:
-- `MYSQL` is optional for legacy compatibility.
-- Current runtime and CI use SQLite.
 
 ## Run
 
-- GUI: `./run.sh -gui`
-- CLI: `./run.sh`
+```bash
+mvn javafx:run
+```
+or run Main.java in Intellij
 
 ## Tests
 
-Run full test suite and generate markdown report:
-
 ```bash
-./test.sh
+mvn test
 ```
 
-Artifacts:
+Test results are output to the console. To generate a full HTML report:
 
-- `test-results/latest.txt`
-- `test-results/latest_clean.txt`
-- `test-results/report.md`
+```bash
+mvn surefire-report:report
+```
+
+Report is saved to `target/site/surefire-report.html`.
 
 ## CI
 
@@ -139,7 +138,7 @@ GitHub Actions workflow:
 
 - `.github/workflows/ci.yml`
 
-CI compiles and runs the test suite with JavaFX + SQLite classpath setup.
+CI compiles and runs the test suite via Maven.
 
 ## Known Limitations / Next Steps
 
