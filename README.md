@@ -16,8 +16,7 @@ Sentence Builder is a JavaFX application that parses large text corpora into an 
 - **Core tables:** `WordCorpus`, `Bigrams`, `Trigrams`, `ImportedFiles`, `UserHistory`
 - **Migrations:** SQL files in `migrations/` applied on startup
 - **Tokenizer:** shared `Tokenizer.java` used by parser + live user input paths
-- **Build:** Maven (`pom.xml`)
-- **Tests:** JUnit 5 (Jupiter)
+- **Tests:** JUnit testing framework
 
 ## Key Features
 
@@ -103,34 +102,36 @@ This defines behavior for contractions, smart punctuation, unicode normalization
 
 ## Environment Setup
 
-Requires **Java 21** and **Maven** installed.
+Create `.env` in project root:
 
-To verify your setup:
 ```bash
-mvn -v
-java -version
+FX=path to JavaFX /lib
+MYSQL=path to mysql-connector-j-version.jar
+MYSQLITE= path to sqlite-jdbc-version.jar
 ```
+
+Notes:
+- `MYSQL` is optional for legacy compatibility.
+- Current runtime and CI use SQLite.
 
 ## Run
 
-```bash
-mvn javafx:run
-```
-or run Main.java in Intellij
+- GUI: `./run.sh -gui`
+- CLI: `./run.sh`
 
 ## Tests
 
-```bash
-mvn test
-```
-
-Test results are output to the console. To generate a full HTML report:
+Run full test suite and generate markdown report:
 
 ```bash
-mvn surefire-report:report
+./test.sh
 ```
 
-Report is saved to `target/site/surefire-report.html`.
+Artifacts:
+
+- `test-results/latest.txt`
+- `test-results/latest_clean.txt`
+- `test-results/report.md`
 
 ## CI
 
@@ -138,7 +139,7 @@ GitHub Actions workflow:
 
 - `.github/workflows/ci.yml`
 
-CI compiles and runs the test suite via Maven.
+CI compiles and runs the test suite with JavaFX + SQLite classpath setup.
 
 ## Known Limitations / Next Steps
 
